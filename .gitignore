@@ -1,0 +1,12 @@
+*.png
+
+# Ignoring large data files
+*.csv
+*.rds
+*.mtx
+
+OtherExports
+
+Papers
+
+data
