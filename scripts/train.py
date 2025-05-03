@@ -1,10 +1,14 @@
 from trainer import Trainer
 from models.mlp_classifier import ADClassifier
+from data import ADOmicsDataLoader
 
 
 def main():
-    training_loader = 0
-    validation_loader = 0
+    data_path = "/mnt/c/Users/JJ/Dropbox/Sharejerah/ROSMAP/data"
+    addl_train = ADOmicsDataLoader(data_path=data_path, subset="train")
+    training_loader = addl_train.get_dataloader()
+    addl_validattion = ADOmicsDataLoader(data_path=data_path, subset="train")
+    validation_loader = addl_validattion.get_dataloader()
     model = ADClassifier(input_dim=0, hidden_dims=[5000, 500, 50, 5])
 
     trainer = Trainer(
