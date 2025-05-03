@@ -1,6 +1,6 @@
-import datetime
+from datetime import datetime
 import torch
-from torch import optimizer
+from torch.optim import Adam
 from torch.utils.data import DataLoader
 
 
@@ -10,10 +10,12 @@ class Trainer:
         training_loader: DataLoader,
         validation_loader: DataLoader,
         model: torch.nn.Module,
+        optimizer: torch.optim.Optimizer = Adam,
     ):
         self.training_loader = training_loader
         self.validation_lodaer = validation_loader
         self.model = model
+        self.optimizer = optimizer
 
     def train_one_epoch(self, epoch_index: int):
         running_loss = 0.0
@@ -27,7 +29,7 @@ class Trainer:
             inputs, labels = data
 
             # Zero your gradients for every batch!
-            optimizer.zero_grad()
+            self.optimizer.zero_grad()
 
             # Make predictions for this batch
             outputs = self.model(inputs)
@@ -36,7 +38,7 @@ class Trainer:
             loss = self.model.loss_fn(outputs, labels)
 
             # Adjust learning weights
-            optimizer.step()
+            self.optimizer.step()
 
             # Gather data and report
             running_loss += loss.item()
