@@ -1,3 +1,4 @@
+# Ignore image files.
 *.png
 
 # Ignoring large data files
@@ -5,10 +6,11 @@
 *.rds
 *.mtx
 
+# Ignore outputs directory
 OtherExports
 
+# Ignore directory containing papers
 Papers
 
-data
-
+# Ignore python auto-generated files
 __pycache__
