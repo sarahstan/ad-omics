@@ -1,5 +1,6 @@
 import os
 import scanpy as sc
+import torch
 from torch.utils.data import Dataset
 
 # All datasets that represent a map from keys to data samples should subclass it.
@@ -12,8 +13,9 @@ from torch.utils.data import Dataset
 
 
 class ADOmicsDataset(Dataset):
-    def __init__(self, data_path: str):
+    def __init__(self, data_path: str, subset: str):
         self.data_path = data_path
+        self.subset = subset
 
         # Paths to the files
         self.mtx_file = os.path.join(data_path, "counts_matrix.mtx")
@@ -33,9 +35,26 @@ class ADOmicsDataset(Dataset):
         ):
             # Read the .mtx file
             self.adata = sc.read_mtx(self.mtx_file)
+        self.split_subsets()
+
+    def split_subsets(self):
+        percent_to_use = 0.05
+        if self.subset == "train":
+            start_percent = 0 * percent_to_use
+            end_percent = 1 * percent_to_use
+        elif self.subset == "test":
+            start_percent = 1 * percent_to_use
+            end_percent = 2 * percent_to_use
+        else:
+            start_percent = 2 * percent_to_use
+            end_percent = 3 * percent_to_use
+        n_samples = self.adata.shape[0]
+        start_int = int(start_percent * n_samples)
+        end_int = int(end_percent * n_samples)
+        self.adata = self.adata[start_int:end_int]
 
     def __len__(self):
-        return self.adata.shape()[0]
+        return self.adata.shape[0]
 
-    def __getitem__(self, index: int):
-        return self.adata.X[index]
+    def __getitem__(self, index: int) -> torch.Tensor:
+        return torch.from_numpy(self.adata.X.toarray()[index])
