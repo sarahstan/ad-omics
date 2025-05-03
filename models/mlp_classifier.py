@@ -4,6 +4,7 @@ import torch
 
 class ADClassifier(torch.nn.Module):
     def __init__(self, input_dim: int, hidden_dims: List[int]):
+        super(ADClassifier, self).__init__()
         self.input_dim = input_dim
         self.hidden_dims = hidden_dims
 
