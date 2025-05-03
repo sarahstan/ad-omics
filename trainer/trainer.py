@@ -43,23 +43,21 @@ class Trainer:
             if i % 1000 == 999:
                 last_loss = running_loss / 1000  # loss per batch
                 print("  batch {} loss: {}".format(i + 1, last_loss))
-                # tb_x = epoch_index * len(self.training_loader) + i + 1
-                # tb_writer.add_scalar("Loss/train", last_loss, tb_x)
+                tb_x = epoch_index * len(self.training_loader) + i + 1
+                print(f"Loss/train: , {last_loss}, {tb_x}")
                 running_loss = 0.0
 
         return last_loss
 
-    def train(self):
+    def train(self, total_epochs: int = 5):
         # Initializing in a separate cell so we can easily add more epochs to the same run
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         # writer = SummaryWriter("runs/fashion_trainer_{}".format(timestamp))
         epoch_number = 0
 
-        EPOCHS = 5
-
         best_vloss = 1_000_000.0
 
-        for epoch in range(EPOCHS):
+        for epoch in range(total_epochs):
             print("EPOCH {}:".format(epoch_number + 1))
 
             # Make sure gradient tracking is on, and do a pass over the data
@@ -84,12 +82,11 @@ class Trainer:
 
             # Log the running loss averaged per batch
             # for both training and validation
-            # writer.add_scalars(
-            #     "Training vs. Validation Loss",
-            #     {"Training": avg_loss, "Validation": avg_vloss},
-            #     epoch_number + 1,
-            # )
-            # writer.flush()
+            print(
+                "Training vs. Validation Loss",
+                {"Training": avg_loss, "Validation": avg_vloss},
+                epoch_number + 1,
+            )
 
             # Track best performance, and save the model's state
             if avg_vloss < best_vloss:
