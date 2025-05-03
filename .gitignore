@@ -14,3 +14,4 @@ Papers
 
 # Ignore python auto-generated files
 __pycache__
+*.egg-info
