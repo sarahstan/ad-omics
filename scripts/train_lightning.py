@@ -3,7 +3,6 @@ from typing import Tuple
 import torch
 import lightning as ltn
 from lightning.pytorch.loggers import TensorBoardLogger, MLFlowLogger
-from lightning.pytorch.loggers.logger import Logger
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from models.mlp_classifier import ADClassifier
@@ -79,14 +78,14 @@ def main():
     model = ADOmicsMLPClassifier(input_dim=example_size, hidden_dims=[5000, 500, 50, 5])
 
     ### Set up loggers
-    tb_logger = TensorBoardLogger("tb_logs", name="adomics_mlp")
+    tb_logger = TensorBoardLogger(save_dir="tb_logs", name="adomics_mlp")
     mlf_logger = MLFlowLogger(experiment_name="adomics_mlp", tracking_uri="file:./mlruns")
 
     # Combine loggers
-    logger: Logger = ltn.loggers.LoggerCollection([tb_logger, mlf_logger])
+    loggers: list = [tb_logger, mlf_logger]
 
     ### Set up trainer
-    trainer = ltn.Trainer(logger=logger, max_epochs=10)
+    trainer = ltn.Trainer(logger=loggers, max_epochs=10)
     trainer.fit(model, training_dataloader, validation_dataloader)
 
 
