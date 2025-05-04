@@ -1,5 +1,6 @@
 from datetime import datetime
 import torch
+from typing import Optional
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 
@@ -28,7 +29,8 @@ class Trainer:
 
     def train_one_epoch(self, epoch_index: int):
         running_loss = 0.0
-        last_loss = 0.0
+        total_batches = 0
+        epoch_average_loss = 0.0
 
         # Here, we use enumerate(training_loader) instead of
         # iter(training_loader) so that we can track the batch
@@ -37,28 +39,34 @@ class Trainer:
             # Every data instance is an input + label pair
             inputs, labels = data
 
+            inputs = inputs.to(self.device)
+            labels = labels.to(self.device)
+
             # Zero your gradients for every batch!
             self.optimizer.zero_grad()
 
             # Make predictions for this batch
-            outputs = self.model(inputs)
+            outputs = self.model(inputs).reshape(-1)
 
             # Compute the loss and its gradients
             loss = self.model.loss_fn(outputs, labels)
+            loss.backward()
 
             # Adjust learning weights
             self.optimizer.step()
 
             # Gather data and report
             running_loss += loss.item()
-            if i % 1000 == 999:
-                last_loss = running_loss / 1000  # loss per batch
-                print("  batch {} loss: {}".format(i + 1, last_loss))
-                tb_x = epoch_index * len(self.training_loader) + i + 1
-                print(f"Loss/train: , {last_loss}, {tb_x}")
-                running_loss = 0.0
+            total_batches += 1
 
-        return last_loss
+            if i % 10 == 0:
+                epoch_average_loss = running_loss / total_batches  # loss per batch
+                tb_x = epoch_index * len(self.training_loader) + i + 1
+                print(f"Epoch: {epoch_index}")
+                print(f"Training batch: {tb_x}")
+                print(f"Loss: {epoch_average_loss:0.4e}")
+
+        return epoch_average_loss
 
     def train(self, total_epochs: int = 5):
         # Initializing in a separate cell so we can easily add more epochs to the same run
@@ -84,12 +92,14 @@ class Trainer:
             with torch.no_grad():
                 for i, vdata in enumerate(self.validation_loader):
                     vinputs, vlabels = vdata
-                    voutputs = self.model(vinputs)
+                    vinputs = vinputs.to(self.device)
+                    vlabels = vlabels.to(self.device)
+                    voutputs = self.model(vinputs).reshape(-1)
                     vloss = self.model.loss_fn(voutputs, vlabels)
                     running_vloss += vloss
 
-            avg_vloss = running_vloss / (i + 1)
-            print("LOSS train {} valid {}".format(avg_loss, avg_vloss))
+                    avg_vloss = running_vloss / (i + 1)
+                print(f"LOSS\n\ttrain {avg_loss}\n\tvalid {avg_vloss}\n\n")
 
             # Log the running loss averaged per batch
             # for both training and validation
