@@ -13,6 +13,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "gpustat>=1.1.1",
+    "ipdb>=0.13.13",
     "ipykernel>=6.29.5",
 ]
 
