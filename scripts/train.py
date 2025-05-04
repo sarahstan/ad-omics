@@ -1,19 +1,22 @@
 from trainer import Trainer
 from models.mlp_classifier import ADClassifier
-from data import ADOmicsDataLoader
+from data import ADOmicsDataset
+from torch.utils.data import DataLoader
 
 
 def main():
     data_path = "/mnt/c/Users/JJ/Dropbox/Sharejerah/ROSMAP/data"
-    addl_train = ADOmicsDataLoader(data_path=data_path, subset="train")
-    training_loader = addl_train.get_dataloader()
-    addl_validattion = ADOmicsDataLoader(data_path=data_path, subset="train")
-    validation_loader = addl_validattion.get_dataloader()
-    model = ADClassifier(input_dim=0, hidden_dims=[5000, 500, 50, 5])
+    training_dataset = ADOmicsDataset(data_path=data_path, subset="train")
+    training_dataloader = DataLoader(training_dataset, batch_size=2)
+    breakpoint()
+    validation_dataset = ADOmicsDataset(data_path=data_path, subset="validation")
+    validation_dataloader = DataLoader(validation_dataset, batch_size=2)
+    example_size = training_dataset[0][0].shape[0]
+    model = ADClassifier(input_dim=example_size, hidden_dims=[5000, 500, 50, 5])
 
     trainer = Trainer(
-        training_loader=training_loader,
-        validation_loader=validation_loader,
+        training_loader=training_dataloader,
+        validation_loader=validation_dataloader,
         model=model,
     )
 
