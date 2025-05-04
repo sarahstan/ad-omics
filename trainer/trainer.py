@@ -12,6 +12,11 @@ class Trainer:
         model: torch.nn.Module,
         optimizer: torch.optim.Optimizer = Adam,
     ):
+        self.device = (
+            device
+            if device is not None
+            else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        )
         self.training_loader = training_loader
         self.validation_lodaer = validation_loader
         self.model = model
