@@ -10,7 +10,8 @@ class Trainer:
         training_loader: DataLoader,
         validation_loader: DataLoader,
         model: torch.nn.Module,
-        optimizer: torch.optim.Optimizer = Adam,
+        optimizer: Optional[torch.optim.Optimizer] = None,
+        device: Optional[torch.device] = None,
     ):
         self.device = (
             device
@@ -18,9 +19,12 @@ class Trainer:
             else torch.device("cuda" if torch.cuda.is_available() else "cpu")
         )
         self.training_loader = training_loader
-        self.validation_lodaer = validation_loader
-        self.model = model
-        self.optimizer = optimizer
+        self.validation_loader = validation_loader
+        self.model = model.to(self.device)
+        if optimizer is None:
+            self.optimizer = Adam(model.parameters())
+        else:
+            self.optimizer = optimizer
 
     def train_one_epoch(self, epoch_index: int):
         running_loss = 0.0
