@@ -2,8 +2,10 @@
 from typing import Tuple
 import torch
 import lightning as ltn
-from lightning.pytorch.loggers import MLFlowLogger
+from lightning.pytorch.loggers import TensorBoardLogger, MLFlowLogger
+from lightning.pytorch.loggers.logger import Logger
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from models.mlp_classifier import ADClassifier
 from data import ADOmicsDataset
 
@@ -13,6 +15,7 @@ class ADOmicsMLPClassifier(ltn.LightningModule):
         super().__init__()
         self.model = ADClassifier(input_dim=input_dim, hidden_dims=hidden_dims)
         self.loss_fn = self.model.loss_fn
+        self.tb_writer = SummaryWriter()
 
     def forward(self, x):
         return self.model(x)
@@ -33,8 +36,20 @@ class ADOmicsMLPClassifier(ltn.LightningModule):
             self.log(name, loss)
         return loss
 
+    def log_weights_and_grads(self):
+        """Log weights and gradients to TensorBoard."""
+        for name, param in self.model.named_parameters():
+            # Log the weights
+            self.tb_writer.add_histogram(f"weights/{name}", param, self.current_epoch)
+
+            # Log the gradients
+            if param.grad is not None:
+                self.tb_writer.add_histogram(f"gradients/{name}", param.grad, self.current_epoch)
+
     def training_step(self, batch, batch_idx):
-        return self._get_loss(batch)
+        loss = self._get_loss(batch)
+        self.log_weights_and_grads()
+        return loss
 
     def validation_step(self, batch, batch_idx):
         return self._get_loss(batch, prefix="val")
@@ -42,6 +57,11 @@ class ADOmicsMLPClassifier(ltn.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
         return optimizer
+
+    def on_epoch_end(self):
+        """End of epoch actions."""
+        super().on_epoch_end()
+        self.tb_writer.flush()
 
 
 def main():
@@ -58,11 +78,15 @@ def main():
     ### Initialize model
     model = ADOmicsMLPClassifier(input_dim=example_size, hidden_dims=[5000, 500, 50, 5])
 
-    ### Set up logger
-    mlf_logger = MLFlowLogger(experiment_name="ADOmics_MLP", tracking_uri="file:./mlruns")
+    ### Set up loggers
+    tb_logger = TensorBoardLogger("tb_logs", name="adomics_mlp")
+    mlf_logger = MLFlowLogger(experiment_name="adomics_mlp", tracking_uri="file:./mlruns")
+
+    # Combine loggers
+    logger: Logger = ltn.loggers.LoggerCollection([tb_logger, mlf_logger])
 
     ### Set up trainer
-    trainer = ltn.Trainer(logger=mlf_logger, max_epochs=10)
+    trainer = ltn.Trainer(logger=logger, max_epochs=10)
     trainer.fit(model, training_dataloader, validation_dataloader)
 
 
