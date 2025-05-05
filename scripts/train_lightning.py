@@ -1,10 +1,9 @@
-# import torch, torch.nn as nn, torch.utils.data as data, torchvision as tv, torch.nn.functional as F
+import os
 from typing import Tuple
 import torch
 import lightning as ltn
-from lightning.pytorch.loggers import TensorBoardLogger, MLFlowLogger
+from lightning.pytorch.loggers import TensorBoardLogger
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
 from models.mlp_classifier import ADClassifier
 from data import ADOmicsDataset
 
@@ -14,16 +13,12 @@ class ADOmicsMLPClassifier(ltn.LightningModule):
         super().__init__()
         self.model = ADClassifier(input_dim=input_dim, hidden_dims=hidden_dims)
         self.loss_fn = self.model.loss_fn
-        self.tb_writer = SummaryWriter()
 
     def forward(self, x):
         return self.model(x)
 
     def _get_loss(
-        self,
-        batch: Tuple[torch.Tensor, torch.Tensor],
-        prefix: str = "",
-        write_to_log: bool = True,
+        self, batch: Tuple[torch.Tensor, torch.Tensor], prefix: str = "", write_to_log: bool = True
     ):
         x, y = batch
         outputs = self(x).reshape(-1)
@@ -32,23 +27,11 @@ class ADOmicsMLPClassifier(ltn.LightningModule):
             name = "loss"
             if prefix:
                 name = f"{prefix}_" + name
-            self.log(name, loss)
+            self.log(name, loss)  # This will log the loss automatically
         return loss
-
-    def log_weights_and_grads(self):
-        """Log weights and gradients to TensorBoard."""
-        for name, param in self.model.named_parameters():
-            # Log the weights
-            self.tb_writer.add_histogram(f"weights/{name}", param, self.current_epoch)
-
-            # Log the gradients
-            if param.grad is not None:
-                self.tb_writer.add_histogram(f"gradients/{name}", param.grad, self.current_epoch)
 
     def training_step(self, batch, batch_idx):
-        loss = self._get_loss(batch)
-        self.log_weights_and_grads()
-        return loss
+        return self._get_loss(batch)
 
     def validation_step(self, batch, batch_idx):
         return self._get_loss(batch, prefix="val")
@@ -57,10 +40,15 @@ class ADOmicsMLPClassifier(ltn.LightningModule):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
         return optimizer
 
-    def on_epoch_end(self):
-        """End of epoch actions."""
-        super().on_epoch_end()
-        self.tb_writer.flush()
+    def on_train_epoch_end(self):
+        logger = self.logger.experiment  # TensorBoard SummaryWriter
+        for name, param in self.model.named_parameters():
+            # Log weights
+            logger.add_histogram(f"weights/{name}", param, self.current_epoch)
+
+            # Log gradients, if available
+            if param.grad is not None:
+                logger.add_histogram(f"gradients/{name}", param.grad, self.current_epoch)
 
 
 def main():
@@ -78,14 +66,10 @@ def main():
     model = ADOmicsMLPClassifier(input_dim=example_size, hidden_dims=[5000, 500, 50, 5])
 
     ### Set up loggers
-    tb_logger = TensorBoardLogger(save_dir="tb_logs", name="adomics_mlp")
-    mlf_logger = MLFlowLogger(experiment_name="adomics_mlp", tracking_uri="file:./mlruns")
-
-    # Combine loggers
-    loggers: list = [tb_logger, mlf_logger]
+    tb_logger = TensorBoardLogger(save_dir="tblogs", name="adomics_mlp")
 
     ### Set up trainer
-    trainer = ltn.Trainer(logger=loggers, max_epochs=10)
+    trainer = ltn.Trainer(logger=tb_logger, max_epochs=10)
     trainer.fit(model, training_dataloader, validation_dataloader)
 
 
