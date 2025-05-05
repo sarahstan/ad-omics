@@ -17,5 +17,5 @@ __pycache__
 *.egg-info
 
 # Ignore deep learning artifacts
-tb_logs
+tblogs
 mlruns
