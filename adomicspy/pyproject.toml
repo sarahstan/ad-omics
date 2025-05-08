@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adomicspy"
+version = "0.1.0"
+description = "Load and visualize scRNA-seq ROSMAP data up to UMAP"
+authors = [{name = "Sarah Stankowicz", email = "sarahstankowicz@gmail.com"}]
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "scanpy",
+    "pyreadr",
+    "scipy",
+    "umap-learn",  # The package name is umap-learn, not umap
+    "plotly",      # No need to list submodules separately
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
