@@ -10,3 +10,11 @@ OtherExports
 Papers
 
 data
+
+# Deep learning artifacts
+tblogs
+
+# Python standard stuff
+*.egg-info
+*.pyc
+__pycache__/
