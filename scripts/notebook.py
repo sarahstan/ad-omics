@@ -1,7 +1,5 @@
 # src/ad_omics/loader.py
 
-import scanpy as sc
-import pandas as pd
 import os
 from data.scdata import scDATA
 from tools.scplot import scPLOT
