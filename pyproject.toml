@@ -6,7 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "adomicspy"
 version = "0.1.0"
 description = "Load and visualize scRNA-seq ROSMAP data up to UMAP"
-authors = [{name = "Sarah Stankowicz", email = "sarahstankowicz@gmail.com"}]
+authors = [
+    {name = "Sarah Stankowicz", email = "sarahstankowicz@gmail.com"},
+    {name = "James Stankowicz", email = "jj.stankowicz@gmail.com"},
+]
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
@@ -21,4 +24,4 @@ dependencies = [
 ]
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+packages = ["data", "models", "trainer", "tools"]
