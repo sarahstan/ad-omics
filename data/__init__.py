@@ -1,3 +1,3 @@
-from ....data.scdata import scDATA
+from .scdata import scDATA
 
 __all__ = ["scDATA"]
