@@ -16,3 +16,18 @@ data = scDATA.load("path/to/data.csv")
 fig, data = load_and_visualize("path/to/data.csv")
 
 Enjoy!
+
+# Update
+
+Install with 
+```bash
+uv init
+uv pip install -e .
+```
+
+Import data like this:
+```python
+from data import scDATA
+data = scDATA.load("path/to/data/folder")
+scd = scDATA(data_path=data_path)
+```
