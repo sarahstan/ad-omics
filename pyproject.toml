@@ -13,14 +13,15 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
-    "numpy",
-    "pandas",
-    "matplotlib",
-    "scanpy",
-    "pyreadr",
-    "scipy",
-    "umap-learn",  # The package name is umap-learn, not umap
-    "plotly",      # No need to list submodules separately
+    "nbformat>=5.10.4",
+    "numpy>=1.24.4",
+    "pandas>=2.0.3",
+    "matplotlib>=3.7.5",
+    "scanpy>=1.9.8",
+    "pyreadr>=0.5.3",
+    "scipy>=1.10.1",
+    "umap-learn>=0.5.7",
+    "plotly>=6.0.1",
 ]
 
 [tool.setuptools]
