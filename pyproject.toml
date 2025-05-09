@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adomicspy"
+version = "0.1.0"
+description = "Load and visualize scRNA-seq ROSMAP data up to UMAP"
+authors = [
+    {name = "Sarah Stankowicz", email = "sarahstankowicz@gmail.com"},
+    {name = "James Stankowicz", email = "jj.stankowicz@gmail.com"},
+]
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "nbformat>=5.10.4",
+    "numpy>=1.24.4",
+    "pandas>=2.0.3",
+    "matplotlib>=3.7.5",
+    "scanpy>=1.9.8",
+    "pyreadr>=0.5.3",
+    "scipy>=1.10.1",
+    "umap-learn>=0.5.7",
+    "plotly>=6.0.1",
+    "ipykernel>=6.29.5",
+]
+
+[tool.setuptools]
+packages = ["data", "models", "trainer", "tools"]
