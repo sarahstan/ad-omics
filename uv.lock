@@ -27,7 +27,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "ipykernel" },
-    { name = "lightning" },
     { name = "matplotlib", version = "3.9.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "matplotlib", version = "3.10.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "nbformat" },
@@ -36,6 +35,7 @@ dependencies = [
     { name = "pandas" },
     { name = "plotly" },
     { name = "pyreadr" },
+    { name = "pytest" },
     { name = "scanpy", version = "1.10.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "scanpy", version = "1.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "scipy", version = "1.13.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
@@ -48,6 +48,7 @@ dev = [
     { name = "gpustat" },
     { name = "ipdb" },
     { name = "ipykernel" },
+    { name = "lightning" },
     { name = "mlflow" },
     { name = "tensorboard" },
     { name = "torch" },
@@ -56,13 +57,13 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "ipykernel", specifier = ">=6.29.5" },
-    { name = "lightning", specifier = ">=2.5.1.post0" },
     { name = "matplotlib", specifier = ">=3.7.5" },
     { name = "nbformat", specifier = ">=5.10.4" },
     { name = "numpy", specifier = ">=1.24.4" },
     { name = "pandas", specifier = ">=2.0.3" },
     { name = "plotly", specifier = ">=6.0.1" },
     { name = "pyreadr", specifier = ">=0.5.3" },
+    { name = "pytest", specifier = ">=8.3.5" },
     { name = "scanpy", specifier = ">=1.9.8" },
     { name = "scipy", specifier = ">=1.10.1" },
     { name = "umap-learn", specifier = ">=0.5.7" },
@@ -73,6 +74,7 @@ dev = [
     { name = "gpustat", specifier = ">=1.1.1" },
     { name = "ipdb", specifier = ">=0.13.13" },
     { name = "ipykernel", specifier = ">=6.29.5" },
+    { name = "lightning", specifier = ">=2.5.1.post0" },
     { name = "mlflow", specifier = ">=2.22.0" },
     { name = "tensorboard", specifier = ">=2.19.0" },
     { name = "torch", specifier = ">=2.7.0" },
@@ -1351,6 +1353,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/cf/8c/f834fbf984f691b4f7ff60f50b514cc3de5cc08abfc3295564dd89c5e2e7/importlib_resources-6.5.2.tar.gz", hash = "sha256:185f87adef5bcc288449d98fb4fba07cea78bc036455dd44c5fc4a2fe78fed2c", size = 44693 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a4/ed/1f1afb2e9e7f38a545d628f864d562a5ae64fe6f7a10e28ffb9b185b4e89/importlib_resources-6.5.2-py3-none-any.whl", hash = "sha256:789cfdc3ed28c78b67a06acb8126751ced69a3d5f79c095a98298cd8a760ccec", size = 37461 },
+]
+
+[[package]]
+name = "iniconfig"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f2/97/ebf4da567aa6827c909642694d71c9fcf53e5b504f2d96afea02718862f3/iniconfig-2.1.0.tar.gz", hash = "sha256:3abbd2e30b36733fee78f9c7f7308f2d0050e88f0087fd25c2645f63c773e1c7", size = 4793 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2c/e1/e6716421ea10d38022b952c159d5161ca1193197fb744506875fbb87ea7b/iniconfig-2.1.0-py3-none-any.whl", hash = "sha256:9deba5723312380e77435581c6bf4935c94cbfab9b1ed33ef8d238ea168eb760", size = 6050 },
 ]
 
 [[package]]
@@ -2984,6 +2995,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pluggy"
+version = "1.5.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/96/2d/02d4312c973c6050a18b314a5ad0b3210edb65a906f868e31c111dede4a6/pluggy-1.5.0.tar.gz", hash = "sha256:2cffa88e94fdc978c4c574f15f9e59b7f4201d439195c3715ca9e2486f1d0cf1", size = 67955 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/88/5f/e351af9a41f866ac3f1fac4ca0613908d9a41741cfcf2228f4ad853b697d/pluggy-1.5.0-py3-none-any.whl", hash = "sha256:44e1ad92c8ca002de6377e165f3e0f1be63266ab4d554740532335b9d75ea669", size = 20556 },
+]
+
+[[package]]
 name = "prompt-toolkit"
 version = "3.0.51"
 source = { registry = "https://pypi.org/simple" }
@@ -3420,6 +3440,23 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/78/aa/8ef7045b2f320d00be0ce63c3e2b6442dd195a7efb3a1892a06686c5c5e1/pyreadr-0.5.3-cp313-cp313-win_amd64.whl", hash = "sha256:e73699867a668e1f3b32f1aacf5c9019a8619a62e1aa0484f726687b61243763", size = 1372799 },
     { url = "https://files.pythonhosted.org/packages/d6/14/49561591f1a95e0da52ad7065a5819bd62e6f2bde59fdd07e70c962fd677/pyreadr-0.5.3-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:4aad92b968c2a6c4ddc32dae712445007a1fdca086eed9c07c0957386e5c125d", size = 409200 },
     { url = "https://files.pythonhosted.org/packages/27/79/6874230d0ea55bad1a683db07a566aff433d621132524c9e495405e8a012/pyreadr-0.5.3-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a1c386a9352d24c28bb25c43fd6da01454fc7e7ecccef06c99e3472d9b01d0cf", size = 412717 },
+]
+
+[[package]]
+name = "pytest"
+version = "8.3.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "exceptiongroup", marker = "python_full_version < '3.11'" },
+    { name = "iniconfig" },
+    { name = "packaging" },
+    { name = "pluggy" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ae/3c/c9d525a414d506893f0cd8a8d0de7706446213181570cdbd766691164e40/pytest-8.3.5.tar.gz", hash = "sha256:f4efe70cc14e511565ac476b57c279e12a855b11f48f212af1080ef2263d3845", size = 1450891 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/30/3d/64ad57c803f1fa1e963a7946b6e0fea4a70df53c1a7fed304586539c2bac/pytest-8.3.5-py3-none-any.whl", hash = "sha256:c69214aa47deac29fad6c2a4f590b9c4a9fdb16a403176fe154b79c0b4d4d820", size = 343634 },
 ]
 
 [[package]]
