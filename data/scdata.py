@@ -4,7 +4,6 @@ import scanpy as sc
 import pandas as pd
 import numpy as np
 from umap import UMAP
-from sklearn.model_selection import train_test_split
 
 
 # Fix for NumPy 2.0+ compatibility with older scanpy
@@ -498,8 +497,8 @@ class scDATA:
         tuple
             (train_mask, val_mask, test_mask) Boolean masks for each split
         """
-        # Set random seed for reproducibility
-        np.random.seed(random_state)
+        # Replace the global seed with a class property RNG
+        self.rng = np.random.RandomState(random_state)
 
         # Step 1: Create patient-level dataframe with stratification columns
         patient_df = self._create_patient_df(stratify_cols)
@@ -518,7 +517,7 @@ class scDATA:
         self._assign_split_data(train_mask, val_mask, test_mask, copy_data)
 
         # Step 5: Print summary statistics
-        self._print_split_stats(train_patients, val_patients, test_patients, stratify_cols)
+        # self._print_split_stats(train_patients, val_patients, test_patients, stratify_cols)
 
         self.is_split = True
         return train_mask, val_mask, test_mask
@@ -644,8 +643,8 @@ class scDATA:
 
     def _random_assign_group(self, patients, train_cutoff, val_cutoff):
         """Randomly assign patients to train/val/test based on cutoffs."""
-        # Assign random value to each patient
-        patient_random_values = {patient: np.random.random() for patient in patients}
+        # Only modify this line to use the class RNG instead of np.random.random()
+        patient_random_values = {patient: self.rng.random() for patient in patients}
 
         # Assign patients to splits based on random values
         train = [p for p, val in patient_random_values.items() if val < train_cutoff]
@@ -737,5 +736,6 @@ class scDATA:
         self.val_metadata = None
         self.test_adata = None
         self.test_metadata = None
+
         self.is_split = False
         print("Split data cleared")
