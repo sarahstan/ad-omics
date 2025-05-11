@@ -12,10 +12,13 @@ if not hasattr(np, "infty"):
 
 
 class scDATA:
-    def __init__(self, data_path: str):
+    def __init__(self, data_path: str, verbose: bool = False):
 
         # Specify the data path
         self.data_path = data_path
+
+        # Set verbosity
+        self.verbose = verbose
 
         # Set paths for data files
         self.set_paths()
@@ -43,7 +46,19 @@ class scDATA:
             for gene in genes
             if gene in self.adata.var_names
         ]
-        print(f"Found {len(self.present_markers)} marker genes in dataset")
+        self._print(f"Found {len(self.present_markers)} marker genes in dataset")
+
+    def _print(self, message):
+        """
+        Print a message to the console.
+
+        Parameters:
+        -----------
+        message : str
+            The message to print
+        """
+        if self.verbose:
+            print(message)
 
     def set_paths(self):
         """
@@ -72,40 +87,39 @@ class scDATA:
         # Use scanpy to load Matrix Market files
         self.adata = sc.read_mtx(self.mtx_path)
         # Print shape before assigning names
-        print(f"Matrix shape: {self.adata.shape}")
+        self._print(f"Matrix shape: {self.adata.shape}")
         # Read gene and cell names
         genes = pd.read_csv(self.genes_path, header=None)
         cells = pd.read_csv(self.barcodes_path, header=None)
-        print(f"Number of genes in file: {len(genes)}")
-        print(f"Number of cells in file: {len(cells)}")
+        self._print(f"Number of genes in file: {len(genes)}")
+        self._print(f"Number of cells in file: {len(cells)}")
         # check if a transpose needed for alignment
         if self.adata.shape[1] == len(genes) and self.adata.shape[0] == len(cells):
             self.adata.var_names = genes[0].values
             self.adata.obs_names = cells[0].values
-            print("Successfully assigned gene and cell names!")
+            self._print("Successfully assigned gene and cell names!")
         elif self.adata.shape[0] == len(genes) and self.adata.shape[1] == len(cells):
             # Transpose and match
             self.adata = self.adata.T
             self.adata.var_names = genes[0].values
             self.adata.obs_names = cells[0].values
-            print("Successfully assigned gene and cell names after transpose!")
+            self._print("Successfully assigned gene and cell names after transpose!")
         else:
             error_str = f"With '{len(genes)}' genes and '{len(cells)}' cells,"
             error_str += f" the data shape is {self.adata.shape}."
             raise ValueError(error_str)
-        print(f"Final data shape: {self.adata.shape}")
-        print(f"Sample of var_names: {list(self.adata.var_names[:5])}")
-        print(f"Sample of obs_names: {list(self.adata.obs_names[:5])}")
+        self._print(f"Final data shape: {self.adata.shape}")
+        self._print(f"Sample of var_names: {list(self.adata.var_names[:5])}")
+        self._print(f"Sample of obs_names: {list(self.adata.obs_names[:5])}")
 
-    def load_metadata(self, display=True):
+    def load_metadata(self):
         self.metadata = pyreadr.read_r(self.meta_path)
         # only one object in the file
         self.metadata = self.metadata[None]
-        if display:
-            print("Metadata loaded sucessfully.")
-            print(self.metadata.shape)
-            print(self.metadata.columns)
-            print(self.metadata.head())
+        self._print("Metadata loaded sucessfully.")
+        self._print(self.metadata.shape)
+        self._print(self.metadata.columns)
+        self._print(self.metadata.head())
 
     def map_cell_type_to_full_name(self, celltype):
         # Maps abbreviated cell types to their full names.
@@ -670,13 +684,13 @@ class scDATA:
             assigned_subjects = set(train_patients) | set(val_patients) | set(test_patients)
             unassigned_subjects = all_subjects - assigned_subjects
 
-            print(
+            self._print(
                 f"Warning: {total_cells - assigned_cells} cells from {len(unassigned_subjects)} "
                 f"subjects were not assigned to any split."
             )
 
             # Assign unassigned subjects to training set
-            print(f"Adding these unassigned subjects to the training set.")
+            self._print(f"Adding these unassigned subjects to the training set.")
             train_patients = list(train_patients) + list(unassigned_subjects)
 
             # Update the train mask
