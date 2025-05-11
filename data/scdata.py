@@ -647,10 +647,8 @@ class scDATA:
         missed_patients = all_patients - all_assigned
 
         if missed_patients:
-            print(
-                f"Warning: {len(missed_patients)} patients in patient_df were not assigned to any split."
-            )
-            print("Adding them to training set.")
+            self._print(f"Warning: {len(missed_patients)} patients were not assigned to any split.")
+            self._print("Adding them to training set.")
             train_patients.extend(list(missed_patients))
 
         return train_patients, val_patients, test_patients
@@ -690,7 +688,7 @@ class scDATA:
             )
 
             # Assign unassigned subjects to training set
-            self._print(f"Adding these unassigned subjects to the training set.")
+            self._print("Adding these unassigned subjects to the training set.")
             train_patients = list(train_patients) + list(unassigned_subjects)
 
             # Update the train mask
