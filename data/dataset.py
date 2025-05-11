@@ -36,11 +36,12 @@ class ADOmicsDataset(Dataset):
                 raise ValueError(error_str)
         self.adata = getattr(self.scdata, f"{self.subset}_adata")
         self.metadata = getattr(self.scdata, f"{self.subset}_metadata")
+        self.metadata["label"] = (self.metadata.ADdiag2types == "AD").astype(int)
 
     def __len__(self) -> int:
         return self.adata.shape[0]
 
     def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
         data = torch.from_numpy(self.adata.X.toarray()[index])
-        label = torch.tensor(self.metadata.iloc[index]).to(torch.float32)
+        label = torch.tensor(self.metadata.label.iloc[index]).to(torch.float32)
         return data, label
