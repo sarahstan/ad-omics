@@ -25,7 +25,7 @@ def dataset_val(scdata: scDATA) -> ADOmicsDataset:
     return dataset
 
 
-def test_dataset(
+def test_dataset_lengths(
     dataset_train: ADOmicsDataset,
     dataset_test: ADOmicsDataset,
     dataset_val: ADOmicsDataset,
@@ -74,4 +74,21 @@ def test_dataset(
     )
     assert abs(observed_val_split - val_split) < 0.05, error_str
 
-    breakpoint()
+
+def test_dataset_get(
+    dataset_train: ADOmicsDataset,
+    dataset_test: ADOmicsDataset,
+    dataset_val: ADOmicsDataset,
+) -> None:
+    # Test the __getitem__ method
+    data, label = dataset_train[0]
+    data_shape = data.shape
+    label_shape = label.shape
+
+    data, label = dataset_test[0]
+    assert data.shape == data_shape, "Data shape is incorrect"
+    assert label.shape == label_shape, "Label shape is incorrect"
+
+    data, label = dataset_val[0]
+    assert data.shape == data_shape, "Data shape is incorrect"
+    assert label.shape == label_shape, "Label shape is incorrect"
