@@ -3,13 +3,11 @@ import torch
 
 
 class ADClassifier(torch.nn.Module):
-    def __init__(self, input_dim: int, hidden_dims: List[int]):
+    def __init__(self, gene_input_dim: int, cell_type_input_dim: int, hidden_dims: List[int]):
         super(ADClassifier, self).__init__()
-        self.input_dim = input_dim
-        self.hidden_dims = hidden_dims
 
         layers: List = []
-        current_input_dim = input_dim
+        current_input_dim = gene_input_dim + cell_type_input_dim
         for layer_dim in hidden_dims:
             layers.append(torch.nn.Linear(current_input_dim, layer_dim))
             layers.append(torch.nn.ReLU())
