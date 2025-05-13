@@ -1,4 +1,5 @@
 import pytest
+import torch
 from data import scDATA, ADOmicsDataset
 
 
@@ -81,14 +82,37 @@ def test_dataset_get(
     dataset_val: ADOmicsDataset,
 ) -> None:
     # Test the __getitem__ method
-    data, label = dataset_train[0]
+    data, cell_type, label = dataset_train[0]
     data_shape = data.shape
+    cell_type_shape = cell_type.shape
     label_shape = label.shape
 
-    data, label = dataset_test[0]
+    data, cell_type, label = dataset_test[0]
     assert data.shape == data_shape, "Data shape is incorrect"
+    assert cell_type.shape == cell_type_shape, "Cell type shape is incorrect"
     assert label.shape == label_shape, "Label shape is incorrect"
 
-    data, label = dataset_val[0]
+    data, cell_type, label = dataset_val[0]
     assert data.shape == data_shape, "Data shape is incorrect"
+    assert cell_type.shape == cell_type_shape, "Cell type shape is incorrect"
     assert label.shape == label_shape, "Label shape is incorrect"
+
+
+def test_cell_type_representation(
+    dataset_train: ADOmicsDataset,
+    dataset_test: ADOmicsDataset,
+    dataset_val: ADOmicsDataset,
+) -> None:
+    # Test the cell type representation
+
+    for dataset in [dataset_train, dataset_test, dataset_val]:
+        cell_type_vec = dataset[0][1]
+        cell_type_int = torch.argmax(cell_type_vec).item()
+
+        error_str = "There should be only one non-zero cell type in the example."
+        assert cell_type_vec.sum() == 1, error_str
+
+        error_str = "The cell type integer representation is incorrect."
+        assert cell_type_int in range(len(dataset.scdata.cell_types)), error_str
+
+    breakpoint()
