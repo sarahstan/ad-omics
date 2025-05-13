@@ -27,6 +27,7 @@ class scDATA:
         self.metadata = None
         self.load_data()
         self.load_metadata()
+        self.set_cell_types()
         # Initialize attributes to store processed data
         self.adata_hvg = None  # Will store processed data with highly variable genes
         self.embedding_df = None  # Will store dimensional reduction results
@@ -120,6 +121,9 @@ class scDATA:
         self._print(self.metadata.shape)
         self._print(self.metadata.columns)
         self._print(self.metadata.head())
+
+    def set_cell_types(self):
+        self.cell_types = [t.lower() for t in sorted(self.metadata.cellsubtype.unique())]
 
     def map_cell_type_to_full_name(self, celltype):
         # Maps abbreviated cell types to their full names.
