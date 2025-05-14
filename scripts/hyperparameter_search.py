@@ -1,7 +1,8 @@
+import os
 import torch
 import lightning as ltn
 from torch.utils.data import DataLoader, Subset
-from models.lightning.mlp_classifier import ADClassifierLightning
+from trainer.lightning.mlp_classifier import ADClassifierLightning
 from data import scDATA, ADOmicsDataset
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
@@ -36,10 +37,14 @@ def train_model_with_hyperparams(config, data_path, num_epochs=5, subset_size=50
         training_dataset,
         batch_size=config["batch_size"],
         num_workers=4,  # Reduced workers for quick runs
+        shuffle=True,
     )
 
     validation_dataloader = DataLoader(
-        validation_dataset, batch_size=config["batch_size"], num_workers=4
+        validation_dataset,
+        batch_size=config["batch_size"],
+        num_workers=4,
+        shuffle=False,
     )
 
     # Get input dimensions from the first sample
@@ -107,6 +112,8 @@ def run_hyperparameter_search(data_path, num_samples=20, num_epochs=5, subset_si
         subset_size=subset_size,
     )
 
+    storage_path = os.path.abspath("./ray_results")
+
     # Run hyperparameter search
     result = tune.run(
         train_fn,
@@ -119,7 +126,7 @@ def run_hyperparameter_search(data_path, num_samples=20, num_epochs=5, subset_si
             metric_columns=["loss", "training_iteration"],
         ),
         name="adomics_hyperparam_search",
-        local_dir="./ray_results",
+        storage_path=storage_path,
     )
 
     # Get best trial
