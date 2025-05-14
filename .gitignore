@@ -15,7 +15,7 @@ Papers
 # Deep learning artifacts
 tblogs
 mlruns
-raw_results
+ray_results
 
 # Python
 __pycache__
