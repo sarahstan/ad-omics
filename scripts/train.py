@@ -1,5 +1,5 @@
 from trainer import Trainer
-from models.mlp_classifier import ADClassifier
+from models.torch.mlp_classifier import ADClassifier
 from data import ADOmicsDataset
 from torch.utils.data import DataLoader
 
