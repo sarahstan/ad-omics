@@ -1,120 +1,165 @@
-from typing import Tuple
 import torch
 import lightning as ltn
-from lightning.pytorch.loggers import TensorBoardLogger
-from torch.utils.data import DataLoader
-from models.mlp_classifier import ADClassifier
+from torch.utils.data import DataLoader, Subset
+from models.lightning.mlp_classifier import ADClassifierLightning
 from data import scDATA, ADOmicsDataset
+from ray import tune
+from ray.tune.schedulers import ASHAScheduler
+from ray.tune.integration.pytorch_lightning import TuneReportCallback
+import os
+from functools import partial
+import numpy as np
+import json
 
 
-class ADOmicsMLPClassifier(ltn.LightningModule):
-    def __init__(self, gene_input_dim: int, cell_type_input_dim: int, hidden_dims: list[int]):
-        super().__init__()
-        self.model = ADClassifier(
-            gene_input_dim=gene_input_dim,
-            cell_type_input_dim=cell_type_input_dim,
-            hidden_dims=hidden_dims,
-            l1_lambda=0.0001,
-        )
-
-    def forward(self, x):
-        return self.model(x)
-
-    def _get_loss(
-        self,
-        batch: Tuple[torch.Tensor, torch.Tensor],
-        prefix: str = "",
-        write_to_log: bool = True,
-    ):
-        x, y = batch
-        outputs = self(x).reshape(-1)
-
-        # Get base loss and L1 loss separately
-        bce_loss = self.model.loss_fn(outputs, y)
-        l1_loss = self.model.get_l1_loss()
-        total_loss = bce_loss + l1_loss
-
-        if write_to_log:
-            prefix = prefix + "_" if prefix else ""
-            self.log(f"{prefix}total_loss", total_loss)
-            self.log(f"{prefix}bce_loss", bce_loss)
-            self.log(f"{prefix}l1_loss", l1_loss)
-
-            # Calculate and log sparsity percentage
-            sparsity = self._calculate_sparsity()
-            self.log(f"{prefix}weight_sparsity", sparsity)
-
-        return total_loss
-
-    def _calculate_sparsity(self):
-        """Calculate percentage of zero weights in the model"""
-        total_params = 0
-        zero_params = 0
-
-        for name, param in self.model.named_parameters():
-            if "weight" in name:
-                total_params += param.numel()
-                zero_params += (param.abs() < 1e-6).sum().item()  # Count near-zero weights
-
-        return 100.0 * zero_params / total_params if total_params > 0 else 0.0
-
-    def training_step(self, batch, batch_idx):
-        gene_expr, cell_type, labels = batch
-        # Concatenate gene expression and cell type data
-        x = torch.cat((gene_expr, cell_type), dim=1)
-        return self._get_loss((x, labels), prefix="train")
-
-    def validation_step(self, batch, batch_idx):
-        gene_expr, cell_type, labels = batch
-        # Concatenate gene expression and cell type data
-        x = torch.cat((gene_expr, cell_type), dim=1)
-        return self._get_loss((x, labels), prefix="val")
-
-    def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
-        return optimizer
-
-    def on_train_epoch_end(self):
-        logger = self.logger.experiment  # TensorBoard SummaryWriter
-        for name, param in self.model.named_parameters():
-            # Log weights
-            logger.add_histogram(f"weights/{name}", param, self.current_epoch)
-
-            # Log gradients, if available
-            if param.grad is not None:
-                logger.add_histogram(f"gradients/{name}", param.grad, self.current_epoch)
-
-
-def main():
-    ### Load datasets
-    data_path = "/mnt/c/Users/JJ/Dropbox/Sharejerah/ROSMAP/data"
+def train_model_with_hyperparams(config, data_path, num_epochs=5, subset_size=500):
+    """Training function for hyperparameter search"""
+    # Load datasets
     scdata = scDATA(data_path=data_path)
     scdata.split_patient_level()
+
+    # Create datasets
     training_dataset = ADOmicsDataset(scDATA=scdata, subset="train")
-    training_dataloader = DataLoader(training_dataset, batch_size=8, num_workers=31)
     validation_dataset = ADOmicsDataset(scDATA=scdata, subset="val")
-    validation_dataloader = DataLoader(validation_dataset, batch_size=2, num_workers=31)
 
-    ### Get example size
-    gene_count_vector_input_size = training_dataset[0][0].shape[0]
+    # Create subset for quick hyperparameter search
+    subset_size = min(subset_size, len(training_dataset))
+    indices = np.random.choice(len(training_dataset), subset_size, replace=False)
+    training_dataset = Subset(training_dataset, indices)
 
-    ### Cell type input size
-    cell_type_input_size = training_dataset[0][1].shape[0]
+    # Smaller validation subset
+    val_subset_size = min(subset_size // 4, len(validation_dataset))
+    val_indices = np.random.choice(len(validation_dataset), val_subset_size, replace=False)
+    validation_dataset = Subset(validation_dataset, val_indices)
 
-    ### Initialize model
-    model = ADOmicsMLPClassifier(
-        gene_input_dim=gene_count_vector_input_size,
-        cell_type_input_dim=cell_type_input_size,
-        hidden_dims=[5000, 500, 50, 5],
+    # Create dataloaders
+    training_dataloader = DataLoader(
+        training_dataset,
+        batch_size=config["batch_size"],
+        num_workers=4,  # Reduced workers for quick runs
     )
 
-    ### Set up loggers
-    tb_logger = TensorBoardLogger(save_dir="tblogs", name="adomics_mlp")
+    validation_dataloader = DataLoader(
+        validation_dataset, batch_size=config["batch_size"], num_workers=4
+    )
 
-    ### Set up trainer
-    trainer = ltn.Trainer(logger=tb_logger, max_epochs=10)
+    # Get input dimensions from the first sample
+    sample = training_dataset.dataset[training_dataset.indices[0]]
+    gene_count_vector_input_size = sample[0].shape[0]
+    cell_type_input_size = sample[1].shape[0]
+
+    # Parse hidden dimensions from config
+    hidden_dims = []
+    for i in range(1, 5):
+        layer_size_key = f"layer_{i}_size"
+        if layer_size_key in config and config[layer_size_key] > 0:
+            hidden_dims.append(config[layer_size_key])
+
+    # Initialize model
+    model = ADClassifierLightning(
+        gene_input_dim=gene_count_vector_input_size,
+        cell_type_input_dim=cell_type_input_size,
+        hidden_dims=hidden_dims,
+        learning_rate=config["learning_rate"],
+        l1_lambda=config["l1_lambda"],
+    )
+
+    # Setup metrics reporting callback
+    metrics = {"loss": "val_total_loss"}
+    callbacks = [TuneReportCallback(metrics, on="validation_end")]
+
+    # Set up trainer - minimal for quick search
+    num_gpus = torch.cuda.device_count()
+    trainer = ltn.Trainer(
+        max_epochs=num_epochs,
+        callbacks=callbacks,
+        accelerator="gpu" if num_gpus > 0 else "cpu",
+        devices=num_gpus if num_gpus > 0 else None,
+        enable_progress_bar=False,
+        logger=False,  # No logging needed for quick search
+    )
+
     trainer.fit(model, training_dataloader, validation_dataloader)
 
 
+def run_hyperparameter_search(data_path, num_samples=20, num_epochs=5, subset_size=500):
+    """Run hyperparameter search and save results to file"""
+    # Define search space
+    config = {
+        "batch_size": tune.choice([8, 16, 32, 64]),
+        "learning_rate": tune.loguniform(1e-4, 1e-2),
+        "l1_lambda": tune.loguniform(1e-5, 1e-3),
+        "layer_1_size": tune.choice([2000, 3000, 5000, 7000]),
+        "layer_2_size": tune.choice([250, 500, 750]),
+        "layer_3_size": tune.choice([30, 50, 100]),
+        "layer_4_size": tune.choice([5, 10, 20]),
+    }
+
+    # Define scheduler for early stopping
+    scheduler = ASHAScheduler(
+        metric="loss", mode="min", max_t=num_epochs, grace_period=2, reduction_factor=2
+    )
+
+    # Create partial function with fixed arguments
+    train_fn = partial(
+        train_model_with_hyperparams,
+        data_path=data_path,
+        num_epochs=num_epochs,
+        subset_size=subset_size,
+    )
+
+    # Run hyperparameter search
+    result = tune.run(
+        train_fn,
+        resources_per_trial={"cpu": 4, "gpu": 0.5 if torch.cuda.device_count() > 0 else 0},
+        config=config,
+        num_samples=num_samples,
+        scheduler=scheduler,
+        progress_reporter=tune.CLIReporter(
+            parameter_columns=["batch_size", "learning_rate", "l1_lambda"],
+            metric_columns=["loss", "training_iteration"],
+        ),
+        name="adomics_hyperparam_search",
+        local_dir="./ray_results",
+    )
+
+    # Get best trial
+    best_trial = result.get_best_trial("loss", "min", "last")
+    best_config = best_trial.config
+    print(f"Best trial config: {best_config}")
+    print(f"Best trial final validation loss: {best_trial.last_result['loss']}")
+
+    # Save best params to file
+    with open("best_hyperparams.json", "w") as f:
+        json.dump(best_config, f, indent=4)
+
+    print("Best hyperparameters saved to best_hyperparams.json")
+    return best_config
+
+
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Hyperparameter search for AD Omics Classifier")
+    parser.add_argument(
+        "--data_path",
+        type=str,
+        default="/mnt/c/Users/JJ/Dropbox/Sharejerah/ROSMAP/data",
+        help="Path to data directory",
+    )
+    parser.add_argument(
+        "--num_trials", type=int, default=20, help="Number of hyperparameter combinations to try"
+    )
+    parser.add_argument(
+        "--subset_size", type=int, default=500, help="Number of examples to use for quick search"
+    )
+    parser.add_argument("--epochs", type=int, default=5, help="Maximum epochs per trial")
+
+    args = parser.parse_args()
+
+    run_hyperparameter_search(
+        data_path=args.data_path,
+        num_samples=args.num_trials,
+        num_epochs=args.epochs,
+        subset_size=args.subset_size,
+    )
