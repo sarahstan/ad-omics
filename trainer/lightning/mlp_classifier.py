@@ -5,14 +5,23 @@ from models.torch.mlp_classifier import ADClassifier
 
 
 class ADClassifierLightning(ltn.LightningModule):
-    def __init__(self, gene_input_dim: int, cell_type_input_dim: int, hidden_dims: list[int]):
+    def __init__(
+        self,
+        gene_input_dim: int,
+        cell_type_input_dim: int,
+        hidden_dims: list[int],
+        learning_rate: float = 0.001,
+        l1_lambda: float = 0.0001,
+    ):
         super().__init__()
+        self.save_hyperparameters()
+        self.learning_rate = learning_rate
+
         self.model = ADClassifier(
             gene_input_dim=gene_input_dim,
             cell_type_input_dim=cell_type_input_dim,
             hidden_dims=hidden_dims,
-            learning_rate=1e-3,
-            l1_lambda=0.0001,
+            l1_lambda=l1_lambda,
         )
 
     def forward(self, x):
@@ -69,7 +78,7 @@ class ADClassifierLightning(ltn.LightningModule):
         return self._get_loss((x, labels), prefix="val")
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
         return optimizer
 
     def on_train_epoch_end(self):
