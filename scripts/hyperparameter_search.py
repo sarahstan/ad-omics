@@ -7,6 +7,7 @@ from data import scDATA, ADOmicsDataset
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.integration.pytorch_lightning import TuneReportCallback
+from ray.air import session
 from functools import partial
 import numpy as np
 import json
@@ -72,6 +73,9 @@ def train_model_with_hyperparams(config, data_path, num_epochs=5, subset_size=50
     metrics = {"loss": "val_total_loss"}
     callbacks = [TuneReportCallback(metrics, on="validation_end")]
 
+    trail_dir = session.get_trial_dir()
+    logger = ltn.pytorch.loggers.TensorBoardLogger(save_dir=trail_dir)
+
     # Set up trainer - minimal for quick search
     num_gpus = torch.cuda.device_count()
     trainer = ltn.Trainer(
@@ -80,7 +84,7 @@ def train_model_with_hyperparams(config, data_path, num_epochs=5, subset_size=50
         accelerator="gpu" if num_gpus > 0 else "cpu",
         devices=num_gpus if num_gpus > 0 else None,
         enable_progress_bar=False,
-        logger=False,  # No logging needed for quick search
+        logger=logger,
     )
 
     trainer.fit(model, training_dataloader, validation_dataloader)
@@ -112,7 +116,7 @@ def run_hyperparameter_search(data_path, num_samples=20, num_epochs=5, subset_si
         subset_size=subset_size,
     )
 
-    storage_path = os.path.abspath("./ray_results")
+    storage_path = os.path.abspath("./tblogs/ray_results")
 
     # Run hyperparameter search
     result = tune.run(
