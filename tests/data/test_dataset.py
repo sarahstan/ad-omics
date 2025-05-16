@@ -114,5 +114,3 @@ def test_cell_type_representation(
 
         error_str = "The cell type integer representation is incorrect."
         assert cell_type_int in range(len(dataset.scdata.cell_types)), error_str
-
-    breakpoint()
