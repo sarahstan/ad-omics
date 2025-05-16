@@ -1,95 +1,75 @@
-import os
-import scanpy as sc
 import torch
-import pyreadr
+from .scdata import scDATA
 from typing import Tuple
 from torch.utils.data import Dataset
+from sklearn.preprocessing import RobustScaler
 
 
 class ADOmicsDataset(Dataset):
-    def __init__(self, data_path: str, subset: str):
-        self.data_path = data_path
+    def __init__(self, scDATA: scDATA, subset: str = "train") -> None:
+        """_summary_
+
+        Args:
+            data_path (str): The path to the data directory.
+            subset (str, optional): The subset of the data to load. Defaults to "train".
+
+        Raises:
+            ValueError: If the subset is not recognized.
+        """
+        self.scdata = scDATA
         self.subset = subset
-        self.set_metadata()
-        self.set_counts()
-        self.set_barcodes()
-        self.set_gene_names()
-        self.split_subsets()
+        self.load_subset()
 
-    def set_counts(self):
-        self.mtx_file = os.path.join(self.data_path, "counts_matrix.mtx")
-        print(f"Matrix file exists: {os.path.exists(self.mtx_file)}")
-        # If they exist, load them
-        if os.path.exists(self.mtx_file):
-            # Read the .mtx file
-            self.counts = sc.read_mtx(self.mtx_file)
-
-    def set_barcodes(self):
-        self.barcodes_file = os.path.join(self.data_path, "cell_barcodes.txt")
-        print(f"Barcodes file exists: {os.path.exists(self.barcodes_file)}")
-        if os.path.exists(self.barcodes_file):
-            with open(self.barcodes_file, "r") as file:
-                self.barcodes = file.read().split("\n")
-
-    def set_gene_names(self):
-        self.genes_file = os.path.join(self.data_path, "gene_names.txt")
-        print(f"Genes file exists: {os.path.exists(self.genes_file)}")
-        if os.path.exists(self.genes_file):
-            with open(self.genes_file, "r") as file:
-                self.gene_names = file.read().split("\n")
-
-    def set_metadata(self):
-        file_path = f"{self.data_path}/ROSMAP.VascularCells.meta_full.rds"
-
-        result = pyreadr.read_r(file_path)
-
-        # The result is a dictionary where keys are the names of objects
-        # and values are pandas DataFrames
-        # If there's only one object in the RDS file:
-        scRNA_meta = result[None]  # or result[0] depending on the structure
-
-        # Add a new column to spell out the full cell types for visualization
-        def longname(celltype):
-            if celltype == "Endo":
-                return "Endothelial"
-            if celltype == "Fib":
-                return "Fibroblast"
-            if celltype == "Per":
-                return "Pericyte"
-            if celltype == "SMC":
-                return "Smooth Muscle Cell"
-            if celltype == "Ependymal":
-                return "Ependymal"
-
-        scRNA_meta["celltype"].unique()
-        scRNA_meta["celltypefull"] = scRNA_meta["celltype"].apply(longname)
-        self.metadata = scRNA_meta
-
-    def split_subsets(self):
-        percent_to_use = 0.05
-        if self.subset == "train":
-            start_percent = 0 * percent_to_use
-            end_percent = 1 * percent_to_use
-        elif self.subset == "test":
-            start_percent = 1 * percent_to_use
-            end_percent = 2 * percent_to_use
-        elif self.subset == "validation":
-            start_percent = 2 * percent_to_use
-            end_percent = 3 * percent_to_use
-        else:
-            raise NotImplementedError("Only train/validation/test subsets are defined.")
-        n_samples = self.counts.shape[0]
-        start_int = int(start_percent * n_samples)
-        end_int = int(end_percent * n_samples)
-        self.counts = self.counts[start_int:end_int]
-        self.labels = self.metadata["ADdiag2types"][start_int:end_int].apply(
-            lambda x: 1.0 if x == "AD" else 0.0
+    def load_subset(self) -> None:
+        # Ensure scdata has already done the split
+        attrs = [
+            "train_adata",
+            "test_adata",
+            "val_adata",
+            "train_metadata",
+            "test_metadata",
+            "val_metadata",
+        ]
+        for attr in attrs:
+            if not hasattr(self.scdata, attr):
+                error_str = f"scDATA object does not have attribute {attr}. "
+                error_str += "Split with scdata.split_patient_level()"
+                raise ValueError(error_str)
+        self.adata = getattr(self.scdata, f"{self.subset}_adata")
+        self.metadata = getattr(self.scdata, f"{self.subset}_metadata")
+        self.metadata["label"] = (self.metadata.ADdiag2types == "AD").astype(int)
+        self.metadata["cell_type"] = self.metadata.cellsubtype.apply(
+            lambda x: self.scdata.cell_types.index(x.lower())
         )
+        self.scaler = RobustScaler(with_centering=False).fit(self.scdata.train_adata.X)
 
     def __len__(self) -> int:
-        return self.counts.shape[0]
+        return self.adata.shape[0]
 
-    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        data = torch.from_numpy(self.counts.X.toarray()[index])
-        label = torch.tensor(self.labels.iloc[index]).to(torch.float32)
-        return data, label
+    def __getitem__(
+        self,
+        index: int,
+        normalize: bool = True,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Get the data and label for a given index.
+
+        Args:
+            index (int): The index of the data point to retrieve.
+            normalize (bool, optional): Whether to normalize the data. Defaults to True.
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The data, cell type, and label.
+        """
+        # Convert the data to a tensor
+        data = self.adata.X[index].toarray().ravel()  # Extract as 1D array
+        if normalize:
+            # Normalize the data - reshape to 2D for transform, then back to 1D
+            data = data.reshape(1, -1)  # Make it 2D for scaler
+            data = self.scaler.transform(data).ravel()  # Transform and flatten back to 1D
+        data = torch.from_numpy(data).float()
+        # Convert the cell type index to a one-hot encoded vector
+        cell_type = torch.zeros(len(self.scdata.cell_types), dtype=torch.float32)
+        cell_type[self.metadata.cell_type.iloc[index]] = 1.0
+        # Convert the label to a tensor
+        label = torch.tensor(self.metadata.label.iloc[index]).to(torch.float32)
+        return data, cell_type, label
