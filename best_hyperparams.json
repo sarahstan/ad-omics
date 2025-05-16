@@ -1,9 +1,0 @@
-{
-    "batch_size": 16,
-    "learning_rate": 0.0003653034166553303,
-    "l1_lambda": 1.99537738117201e-05,
-    "layer_1_size": 3000,
-    "layer_2_size": 500,
-    "layer_3_size": 50,
-    "layer_4_size": 5
-}
