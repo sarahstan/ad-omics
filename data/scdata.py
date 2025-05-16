@@ -5,16 +5,20 @@ import pandas as pd
 import numpy as np
 from umap import UMAP
 
+
 # Fix for NumPy 2.0+ compatibility with older scanpy
 if not hasattr(np, "infty"):
     np.infty = np.inf
 
 
 class scDATA:
-    def __init__(self, data_path: str):
+    def __init__(self, data_path: str, verbose: bool = False):
 
         # Specify the data path
         self.data_path = data_path
+
+        # Set verbosity
+        self.verbose = verbose
 
         # Set paths for data files
         self.set_paths()
@@ -23,6 +27,7 @@ class scDATA:
         self.metadata = None
         self.load_data()
         self.load_metadata()
+        self.set_cell_types()
         # Initialize attributes to store processed data
         self.adata_hvg = None  # Will store processed data with highly variable genes
         self.embedding_df = None  # Will store dimensional reduction results
@@ -42,7 +47,19 @@ class scDATA:
             for gene in genes
             if gene in self.adata.var_names
         ]
-        print(f"Found {len(self.present_markers)} marker genes in dataset")
+        self._print(f"Found {len(self.present_markers)} marker genes in dataset")
+
+    def _print(self, message):
+        """
+        Print a message to the console.
+
+        Parameters:
+        -----------
+        message : str
+            The message to print
+        """
+        if self.verbose:
+            print(message)
 
     def set_paths(self):
         """
@@ -71,40 +88,42 @@ class scDATA:
         # Use scanpy to load Matrix Market files
         self.adata = sc.read_mtx(self.mtx_path)
         # Print shape before assigning names
-        print(f"Matrix shape: {self.adata.shape}")
+        self._print(f"Matrix shape: {self.adata.shape}")
         # Read gene and cell names
         genes = pd.read_csv(self.genes_path, header=None)
         cells = pd.read_csv(self.barcodes_path, header=None)
-        print(f"Number of genes in file: {len(genes)}")
-        print(f"Number of cells in file: {len(cells)}")
+        self._print(f"Number of genes in file: {len(genes)}")
+        self._print(f"Number of cells in file: {len(cells)}")
         # check if a transpose needed for alignment
         if self.adata.shape[1] == len(genes) and self.adata.shape[0] == len(cells):
             self.adata.var_names = genes[0].values
             self.adata.obs_names = cells[0].values
-            print("Successfully assigned gene and cell names!")
+            self._print("Successfully assigned gene and cell names!")
         elif self.adata.shape[0] == len(genes) and self.adata.shape[1] == len(cells):
             # Transpose and match
             self.adata = self.adata.T
             self.adata.var_names = genes[0].values
             self.adata.obs_names = cells[0].values
-            print("Successfully assigned gene and cell names after transpose!")
+            self._print("Successfully assigned gene and cell names after transpose!")
         else:
             error_str = f"With '{len(genes)}' genes and '{len(cells)}' cells,"
             error_str += f" the data shape is {self.adata.shape}."
             raise ValueError(error_str)
-        print(f"Final data shape: {self.adata.shape}")
-        print(f"Sample of var_names: {list(self.adata.var_names[:5])}")
-        print(f"Sample of obs_names: {list(self.adata.obs_names[:5])}")
+        self._print(f"Final data shape: {self.adata.shape}")
+        self._print(f"Sample of var_names: {list(self.adata.var_names[:5])}")
+        self._print(f"Sample of obs_names: {list(self.adata.obs_names[:5])}")
 
-    def load_metadata(self, display=True):
+    def load_metadata(self):
         self.metadata = pyreadr.read_r(self.meta_path)
         # only one object in the file
         self.metadata = self.metadata[None]
-        if display:
-            print("Metadata loaded sucessfully.")
-            print(self.metadata.shape)
-            print(self.metadata.columns)
-            print(self.metadata.head())
+        self._print("Metadata loaded sucessfully.")
+        self._print(self.metadata.shape)
+        self._print(self.metadata.columns)
+        self._print(self.metadata.head())
+
+    def set_cell_types(self):
+        self.cell_types = [t.lower() for t in sorted(self.metadata.cellsubtype.unique())]
 
     def map_cell_type_to_full_name(self, celltype):
         # Maps abbreviated cell types to their full names.
@@ -466,3 +485,273 @@ class scDATA:
         except Exception as e:
             print(f"Error running UMAP: {e}")
             return None
+
+    def split_patient_level(
+        self,
+        test_size=0.15,
+        val_size=0.15,
+        stratify_cols=["ADdiag2types", "msex"],
+        random_state=42,
+        copy_data=True,
+    ):
+        """
+        Perform patient-level stratified train/test/validation split.
+
+        Parameters:
+        -----------
+        test_size : float
+            Proportion of patients to include in test set
+        val_size : float
+            Proportion of patients to include in validation set
+        stratify_cols : list
+            Columns to use for stratification
+        random_state : int
+            Random seed for reproducibility
+        copy_data : bool
+            Whether to create copies of the data (True) or views (False)
+
+        Returns:
+        --------
+        tuple
+            (train_mask, val_mask, test_mask) Boolean masks for each split
+        """
+        # Replace the global seed with a class property RNG
+        self.rng = np.random.RandomState(random_state)
+
+        # Step 1: Create patient-level dataframe with stratification columns
+        patient_df = self._create_patient_df(stratify_cols)
+
+        # Step 2: Split patients into train/val/test sets
+        train_patients, val_patients, test_patients = self._split_stratified(
+            patient_df, stratify_cols, test_size, val_size
+        )
+
+        # Step 3: Create masks for cell-level data
+        train_mask, val_mask, test_mask = self._create_data_masks(
+            train_patients, val_patients, test_patients
+        )
+
+        # Step 4: Create split datasets
+        self._assign_split_data(train_mask, val_mask, test_mask, copy_data)
+
+        # Step 5: Print summary statistics
+        # self._print_split_stats(train_patients, val_patients, test_patients, stratify_cols)
+
+        self.is_split = True
+        return train_mask, val_mask, test_mask
+
+    def _create_patient_df(self, stratify_cols):
+        """Create a dataframe with one row per patient, aggregating cell-level data."""
+        # Create aggregation dictionary
+        agg_dict = {}
+
+        # Add columns for stratification
+        for col in stratify_cols:
+            if col in self.metadata.columns:
+                # Use mode for categorical variables
+                agg_dict[col] = lambda x: x.mode()[0] if x.mode().shape[0] > 0 else np.nan
+
+        # Group by patient ID and aggregate
+        patient_df = self.metadata.groupby("subject").agg(agg_dict).reset_index()
+
+        # Add the count of samples per patient (as a separate step)
+        sample_counts = self.metadata.groupby("subject").size()
+        patient_df = patient_df.merge(
+            sample_counts.rename("sample_count").reset_index(), on="subject", how="left"
+        )
+
+        # Add binned sample count for stratification
+        patient_df = self._add_sample_count_bins(patient_df)
+
+        # Handle missing values in stratification columns
+        patient_df = self._handle_missing_values(patient_df, stratify_cols)
+
+        return patient_df
+
+    def _add_sample_count_bins(self, patient_df):
+        """Add binned version of sample counts for stratification."""
+        if "sample_count" in patient_df.columns and patient_df["sample_count"].nunique() > 1:
+            try:
+                # Try to create 4 bins, or fewer if not enough unique values
+                n_bins = min(4, patient_df["sample_count"].nunique())
+                if n_bins > 1:
+                    patient_df["sample_count_bin"] = pd.qcut(
+                        patient_df["sample_count"], n_bins, labels=False, duplicates="drop"
+                    )
+                else:
+                    patient_df["sample_count_bin"] = 0
+            except Exception as e:
+                print(f"Warning: Could not create sample count bins: {e}")
+                patient_df["sample_count_bin"] = 0
+
+        return patient_df
+
+    def _handle_missing_values(self, patient_df, stratify_cols):
+        """Fill missing values in stratification columns."""
+        for col in stratify_cols:
+            if col in patient_df.columns and patient_df[col].isna().any():
+                # For numeric columns, use median
+                if np.issubdtype(patient_df[col].dtype, np.number):
+                    fill_value = patient_df[col].median()
+                else:
+                    # For categorical, use mode
+                    fill_value = patient_df[col].mode()[0]
+
+                patient_df[col] = patient_df[col].fillna(fill_value)
+
+        return patient_df
+
+    def _split_stratified(self, patient_df, stratify_cols, test_size, val_size):
+        """Split patients into train/val/test sets with stratification."""
+        # Define the cutoffs for each split
+        train_cutoff = 1.0 - test_size - val_size
+        val_cutoff = 1.0 - test_size
+
+        # Initialize lists to hold patients for each split
+        train_patients = []
+        val_patients = []
+        test_patients = []
+
+        # Add sample_count_bin to stratification columns if available
+        if "sample_count_bin" in patient_df.columns:
+            if "sample_count_bin" not in stratify_cols:
+                stratify_cols = stratify_cols + ["sample_count_bin"]
+
+        # Get valid stratification columns (those that exist in the dataframe)
+        valid_cols = [col for col in stratify_cols if col in patient_df.columns]
+
+        # Get stratification groups
+        if valid_cols:
+            # Group by stratification columns
+            grouped = patient_df.groupby(valid_cols)
+
+            # For each group, assign patients to splits
+            for _, group in grouped:
+                patients_in_group = group["subject"].tolist()
+
+                # Split patients in this group
+                group_train, group_val, group_test = self._random_assign_group(
+                    patients_in_group, train_cutoff, val_cutoff
+                )
+
+                # Add to overall lists
+                train_patients.extend(group_train)
+                val_patients.extend(group_val)
+                test_patients.extend(group_test)
+        else:
+            # If no valid stratification columns, do random split
+            print("Warning: No valid stratification columns. Performing random split.")
+            train_patients, val_patients, test_patients = self._random_assign_group(
+                patient_df["subject"].tolist(), train_cutoff, val_cutoff
+            )
+
+        # Check if we missed any patients from patient_df
+        all_assigned = set(train_patients) | set(val_patients) | set(test_patients)
+        all_patients = set(patient_df["subject"].unique())
+        missed_patients = all_patients - all_assigned
+
+        if missed_patients:
+            self._print(f"Warning: {len(missed_patients)} patients were not assigned to any split.")
+            self._print("Adding them to training set.")
+            train_patients.extend(list(missed_patients))
+
+        return train_patients, val_patients, test_patients
+
+    def _random_assign_group(self, patients, train_cutoff, val_cutoff):
+        """Randomly assign patients to train/val/test based on cutoffs."""
+        # Only modify this line to use the class RNG instead of np.random.random()
+        patient_random_values = {patient: self.rng.random() for patient in patients}
+
+        # Assign patients to splits based on random values
+        train = [p for p, val in patient_random_values.items() if val < train_cutoff]
+        val = [p for p, val in patient_random_values.items() if train_cutoff <= val < val_cutoff]
+        test = [p for p, val in patient_random_values.items() if val >= val_cutoff]
+
+        return train, val, test
+
+    def _create_data_masks(self, train_patients, val_patients, test_patients):
+        """Create boolean masks for cell-level data based on patient assignments."""
+        # Create masks for each split
+        train_mask = self.metadata["subject"].isin(train_patients)
+        val_mask = self.metadata["subject"].isin(val_patients)
+        test_mask = self.metadata["subject"].isin(test_patients)
+
+        # Verify all cells are assigned
+        total_cells = self.metadata.shape[0]
+        assigned_cells = train_mask.sum() + val_mask.sum() + test_mask.sum()
+
+        if assigned_cells != total_cells:
+            # Find subjects that weren't assigned
+            all_subjects = set(self.metadata["subject"].unique())
+            assigned_subjects = set(train_patients) | set(val_patients) | set(test_patients)
+            unassigned_subjects = all_subjects - assigned_subjects
+
+            self._print(
+                f"Warning: {total_cells - assigned_cells} cells from {len(unassigned_subjects)} "
+                f"subjects were not assigned to any split."
+            )
+
+            # Assign unassigned subjects to training set
+            self._print("Adding these unassigned subjects to the training set.")
+            train_patients = list(train_patients) + list(unassigned_subjects)
+
+            # Update the train mask
+            train_mask = self.metadata["subject"].isin(train_patients)
+
+            # Re-verify
+            new_assigned = train_mask.sum() + val_mask.sum() + test_mask.sum()
+            if new_assigned != total_cells:
+                print(f"Error: Still have {total_cells - new_assigned} unassigned cells.")
+                # As a last resort, just include all cells
+                all_unassigned = ~(train_mask | val_mask | test_mask)
+                train_mask = train_mask | all_unassigned
+
+        return train_mask, val_mask, test_mask
+
+    def _assign_split_data(self, train_mask, val_mask, test_mask, copy_data):
+        """Assign data to class attributes based on masks."""
+        if copy_data:
+            # Create copies (safer but uses more memory)
+            self.train_adata = self.adata[train_mask].copy()
+            self.train_metadata = self.metadata.loc[train_mask].copy()
+            self.val_adata = self.adata[val_mask].copy()
+            self.val_metadata = self.metadata.loc[val_mask].copy()
+            self.test_adata = self.adata[test_mask].copy()
+            self.test_metadata = self.metadata.loc[test_mask].copy()
+        else:
+            # Using views (more memory efficient)
+            self.train_adata = self.adata[train_mask]
+            self.train_metadata = self.metadata.loc[train_mask]
+            self.val_adata = self.adata[val_mask]
+            self.val_metadata = self.metadata.loc[val_mask]
+            self.test_adata = self.adata[test_mask]
+            self.test_metadata = self.metadata.loc[test_mask]
+
+    def _print_split_stats(self, train_patients, val_patients, test_patients, stratify_cols):
+        """Print statistics about the train/val/test splits."""
+        # Print basic counts
+        print(
+            f"Training set: {self.train_adata.shape[0]} cells from {len(train_patients)} patients"
+        )
+        print(f"Validation set: {self.val_adata.shape[0]} cells from {len(val_patients)} patients")
+        print(f"Test set: {self.test_adata.shape[0]} cells from {len(test_patients)} patients")
+
+        # Print distribution of stratification variables
+        for col in stratify_cols:
+            if col in self.metadata.columns:
+                print(f"\nDistribution of {col}:")
+                print("Train:", self.train_metadata[col].value_counts(normalize=True))
+                print("Val:", self.val_metadata[col].value_counts(normalize=True))
+                print("Test:", self.test_metadata[col].value_counts(normalize=True))
+
+    def clear_splits(self):
+        """Clear the split data to free memory"""
+        self.train_adata = None
+        self.train_metadata = None
+        self.val_adata = None
+        self.val_metadata = None
+        self.test_adata = None
+        self.test_metadata = None
+
+        self.is_split = False
+        print("Split data cleared")
