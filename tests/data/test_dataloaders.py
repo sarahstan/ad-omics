@@ -1,9 +1,7 @@
 import pytest
 import torch
-import numpy as np
 from data import scDATA, ADOmicsDataset
 from torch.utils.data import DataLoader
-from scipy.stats import ks_2samp
 
 
 @pytest.fixture
@@ -37,8 +35,6 @@ def dataloader_unshuffled(dataset: ADOmicsDataset, batch_size: int) -> DataLoade
 
 
 def test_dataloader_shuffling(
-    dataset: ADOmicsDataset,
-    batch_size: int,
     dataloader_shuffled: DataLoader,
     dataloader_unshuffled: DataLoader,
 ) -> None:
@@ -67,4 +63,11 @@ def test_dataloader_shuffling(
     cell_types_unshuffled = torch.concat([b[1] for b in batch_unshuffled])
     labels_unshuffled = torch.concat([b[2] for b in batch_unshuffled])
 
-    breakpoint()
+    error_str = "genes_shuffled and genes_unshuffled should not be identical."
+    assert not torch.equal(genes_shuffled, genes_unshuffled), error_str
+
+    error_str = "cell_types_shuffled and cell_types_unshuffled should not be identical."
+    assert not torch.equal(cell_types_shuffled, cell_types_unshuffled), error_str
+
+    error_str = "labels_shuffled and labels_unshuffled should not be identical."
+    assert not torch.equal(labels_shuffled, labels_unshuffled), error_str
