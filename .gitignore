@@ -13,9 +13,7 @@ OtherExports
 Papers
 
 # Deep learning artifacts
-tblogs
-mlruns
-ray_results
+logs/
 
 # Python
 __pycache__
