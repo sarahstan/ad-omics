@@ -106,3 +106,6 @@ class ADClassifierLightning(ltn.LightningModule):
             # Log gradients, if available
             if param.grad is not None:
                 logger.add_histogram(f"gradients/{name}", param.grad, self.current_epoch)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.model(x)
