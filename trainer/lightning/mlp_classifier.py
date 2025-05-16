@@ -1,6 +1,7 @@
 from typing import Tuple
 import lightning as ltn
 import torch
+import numpy as np
 from models.torch.mlp_classifier import ADClassifier
 
 
@@ -16,16 +17,21 @@ class ADClassifierLightning(ltn.LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.learning_rate = learning_rate
+        self.l1_lambda = l1_lambda
+        self.loss_fn = torch.nn.BCELoss()
 
         self.model = ADClassifier(
             gene_input_dim=gene_input_dim,
             cell_type_input_dim=cell_type_input_dim,
             hidden_dims=hidden_dims,
-            l1_lambda=l1_lambda,
         )
 
-    def forward(self, x):
-        return self.model(x)
+    def get_l1_loss(self) -> torch.Tensor:
+        """Calculate the L1 loss for all parameters in the model."""
+        l1_loss = 0.0
+        for param in self.model.parameters():
+            l1_loss += torch.sum(torch.abs(param))
+        return self.l1_lambda * l1_loss
 
     def _get_loss(
         self,
@@ -36,9 +42,8 @@ class ADClassifierLightning(ltn.LightningModule):
         x, y = batch
         outputs = self(x).reshape(-1)
 
-        # Get base loss and L1 loss separately
-        bce_loss = self.model.loss_fn(outputs, y)
-        l1_loss = self.model.get_l1_loss()
+        bce_loss = self.loss_fn(outputs, y)
+        l1_loss = self.get_l1_loss()
         total_loss = bce_loss + l1_loss
 
         if write_to_log:
@@ -54,16 +59,27 @@ class ADClassifierLightning(ltn.LightningModule):
         return total_loss
 
     def _calculate_sparsity(self):
-        """Calculate percentage of zero weights in the model"""
+        """Calculate percentage of zero weights at multiple thresholds"""
         total_params = 0
-        zero_params = 0
+        # Check multiple thresholds
+        thresholds = [1e-6, 1e-5, 1e-4, 1e-3, 1e-2]
+        counts = {t: 0 for t in thresholds}
 
         for name, param in self.model.named_parameters():
             if "weight" in name:
                 total_params += param.numel()
-                zero_params += (param.abs() < 1e-6).sum().item()  # Count near-zero weights
+                for t in thresholds:
+                    counts[t] += (param.abs() < t).sum().item()
 
-        return 100.0 * zero_params / total_params if total_params > 0 else 0.0
+        # Log each threshold but maintain original behavior
+        original_sparsity = 100.0 * counts[1e-6] / total_params if total_params > 0 else 0.0
+
+        # Log additional metrics
+        for t in thresholds:
+            sparsity = 100.0 * counts[t] / total_params if total_params > 0 else 0.0
+            self.log(f"sparsity_1e{int(np.log10(t))}", sparsity)
+
+        return original_sparsity  # Return the original metric for consistency
 
     def training_step(self, batch, batch_idx):
         gene_expr, cell_type, labels = batch
