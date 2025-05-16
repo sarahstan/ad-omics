@@ -1,3 +1,4 @@
 from .dataset import ADOmicsDataset
+from .scdata import scDATA
 
-__all__ = ["ADOmicsDataset"]
+__all__ = ["scDATA", "ADOmicsDataset"]
