@@ -11,6 +11,8 @@ from ray.air import session
 from functools import partial
 import numpy as np
 import json
+import mlflow
+from ray.air.integrations.mlflow import MLflowLoggerCallback
 
 
 def train_model_with_hyperparams(config, data_path, num_epochs=5, subset_size=500):
@@ -73,8 +75,8 @@ def train_model_with_hyperparams(config, data_path, num_epochs=5, subset_size=50
     metrics = {"loss": "val_total_loss"}
     callbacks = [TuneReportCallback(metrics, on="validation_end")]
 
-    trail_dir = session.get_trial_dir()
-    logger = ltn.pytorch.loggers.TensorBoardLogger(save_dir=trail_dir)
+    trial_dir = session.get_trial_dir()
+    logger = ltn.pytorch.loggers.TensorBoardLogger(save_dir=trial_dir)
 
     # Set up trainer - minimal for quick search
     num_gpus = torch.cuda.device_count()
@@ -90,18 +92,115 @@ def train_model_with_hyperparams(config, data_path, num_epochs=5, subset_size=50
     trainer.fit(model, training_dataloader, validation_dataloader)
 
 
-def run_hyperparameter_search(data_path, num_samples=20, num_epochs=5, subset_size=500):
+def get_best_params_from_mlflow(experiment_name, base_log_dir="./logs"):
+    """Retrieve the best parameters from a previous MLflow experiment"""
+    mlflow_log_dir = os.path.join(base_log_dir, "mlflow")
+    mlflow_tracking_uri = f"file:{mlflow_log_dir}"
+    mlflow.set_tracking_uri(mlflow_tracking_uri)
+
+    # Get the experiment
+    experiment = mlflow.get_experiment_by_name(experiment_name)
+
+    if experiment is None:
+        print(f"No experiment named '{experiment_name}' found. Using default parameters.")
+        return None
+
+    # Get all runs in this experiment
+    runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
+
+    if runs.empty:
+        print(f"No runs found for experiment '{experiment_name}'. Using default parameters.")
+        return None
+
+    # Find the run with the lowest loss
+    best_run = runs.sort_values("metrics.loss", ascending=True).iloc[0]
+
+    # Extract parameters
+    params = {}
+    for key in best_run.filter(like="params").index:
+        param_name = key.replace("params.", "")
+        param_value = best_run[key]
+
+        # Convert strings to appropriate types
+        if param_name in [
+            "batch_size",
+            "layer_1_size",
+            "layer_2_size",
+            "layer_3_size",
+            "layer_4_size",
+        ]:
+            param_value = int(param_value)
+        elif param_name in ["learning_rate", "l1_lambda"]:
+            param_value = float(param_value)
+
+        params[param_name] = param_value
+
+    print(f"Retrieved best parameters from experiment '{experiment_name}':")
+    print(json.dumps(params, indent=2))
+
+    return params
+
+
+def run_hyperparameter_search(
+    data_path: str,
+    num_samples: int = 20,
+    num_epochs: int = 5,
+    subset_size: int = 500,
+    experiment_name: str = "fine_grained_search",
+    coarse_experiment_name: str = None,
+    is_fine_tuning: bool = False,
+    range_multiplier: float = 0.5,  # Controls search space width for fine-tuning
+):
     """Run hyperparameter search and save results to file"""
-    # Define search space
-    config = {
-        "batch_size": tune.choice([8, 16, 32, 64]),
-        "learning_rate": tune.loguniform(1e-4, 1e-2),
-        "l1_lambda": tune.loguniform(1e-5, 1e-3),
-        "layer_1_size": tune.choice([2000, 3000, 5000, 7000]),
-        "layer_2_size": tune.choice([250, 500, 750]),
-        "layer_3_size": tune.choice([30, 50, 100]),
-        "layer_4_size": tune.choice([5, 10, 20]),
-    }
+    # Create organized log directories
+    base_log_dir = os.path.abspath("./logs")
+    tb_log_dir = os.path.join(base_log_dir, "tensorboard", experiment_name)
+    mlflow_log_dir = os.path.join(base_log_dir, "mlflow")
+
+    # Ensure directories exist
+    os.makedirs(tb_log_dir, exist_ok=True)
+    os.makedirs(mlflow_log_dir, exist_ok=True)
+
+    # Define search space based on search type
+    if is_fine_tuning and coarse_experiment_name:
+        # Get best parameters from previous experiment
+        best_params = get_best_params_from_mlflow(coarse_experiment_name, base_log_dir)
+
+        if best_params:
+            # Define a fine-tuned search space around the best parameters
+            lr = best_params["learning_rate"]
+            l1_lambda = best_params["l1_lambda"]
+
+            config = {
+                "batch_size": tune.choice(
+                    [
+                        max(16, int(best_params["batch_size"] * 0.5)),
+                        best_params["batch_size"],
+                        min(256, int(best_params["batch_size"] * 2)),
+                    ]
+                ),
+                "learning_rate": tune.loguniform(
+                    lr * (1 - range_multiplier), lr * (1 + range_multiplier)
+                ),
+                "l1_lambda": tune.loguniform(
+                    l1_lambda * (1 - range_multiplier), l1_lambda * (1 + range_multiplier)
+                ),
+            }
+
+            # For each layer size, create a focused search space
+            for i in range(1, 5):
+                layer_key = f"layer_{i}_size"
+                if layer_key in best_params:
+                    base_size = best_params[layer_key]
+                    smaller = max(5, int(base_size * (1 - range_multiplier)))
+                    larger = int(base_size * (1 + range_multiplier))
+                    config[layer_key] = tune.choice([smaller, base_size, larger])
+        else:
+            # Fallback to default search space if no best params found
+            config = _create_default_search_space()
+    else:
+        # Use default search space for coarse-grained search
+        config = _create_default_search_space()
 
     # Define scheduler for early stopping
     scheduler = ASHAScheduler(
@@ -116,7 +215,15 @@ def run_hyperparameter_search(data_path, num_samples=20, num_epochs=5, subset_si
         subset_size=subset_size,
     )
 
-    storage_path = os.path.abspath("./tblogs/ray_results")
+    # Set up MLflow tracking
+    mlflow_tracking_uri = f"file:{mlflow_log_dir}"
+    mlflow.set_tracking_uri(mlflow_tracking_uri)
+    mlflow.set_experiment(experiment_name)
+
+    # MLflow callback for Ray Tune
+    mlflow_callback = MLflowLoggerCallback(
+        experiment_name=experiment_name, tracking_uri=mlflow_tracking_uri, save_artifact=True
+    )
 
     # Run hyperparameter search
     result = tune.run(
@@ -130,7 +237,8 @@ def run_hyperparameter_search(data_path, num_samples=20, num_epochs=5, subset_si
             metric_columns=["loss", "training_iteration"],
         ),
         name="adomics_hyperparam_search",
-        storage_path=storage_path,
+        storage_path=tb_log_dir,  # Use TB directory for Ray Tune's storage
+        callbacks=[mlflow_callback],  # Add MLflow callback
     )
 
     # Get best trial
@@ -140,11 +248,38 @@ def run_hyperparameter_search(data_path, num_samples=20, num_epochs=5, subset_si
     print(f"Best trial final validation loss: {best_trial.last_result['loss']}")
 
     # Save best params to file
-    with open("best_hyperparams.json", "w") as f:
+    results_dir = os.path.join(base_log_dir, "results")
+    os.makedirs(results_dir, exist_ok=True)
+    best_params_path = os.path.join(results_dir, f"{experiment_name}_best_hyperparams.json")
+
+    with open(best_params_path, "w") as f:
         json.dump(best_config, f, indent=4)
 
-    print("Best hyperparameters saved to best_hyperparams.json")
+    # Also log best parameters to MLflow
+    with mlflow.start_run(run_name="best_trial"):
+        mlflow.log_params(best_config)
+        mlflow.log_metric("best_loss", best_trial.last_result["loss"])
+        mlflow.log_artifact(best_params_path)
+
+    print(f"Best hyperparameters saved to {best_params_path}")
+    print(f"TensorBoard logs saved to {tb_log_dir}")
+    print(f"MLflow experiment data saved to {mlflow_log_dir}")
+    print("To view TensorBoard logs: tensorboard --logdir=./logs/tensorboard")
+    print("To view MLflow experiments: mlflow ui --backend-store-uri=file:./logs/mlflow")
     return best_config
+
+
+def _create_default_search_space():
+    """Create a default search space for coarse-grained search"""
+    return {
+        "batch_size": tune.choice([32, 64, 128]),
+        "learning_rate": tune.loguniform(1e-5, 1e-1),
+        "l1_lambda": tune.loguniform(0.1, 10.0),
+        "layer_1_size": tune.choice([2000, 3000, 5000, 7000]),
+        "layer_2_size": tune.choice([250, 500, 750]),
+        "layer_3_size": tune.choice([30, 50, 100]),
+        "layer_4_size": tune.choice([5, 10, 20]),
+    }
 
 
 if __name__ == "__main__":
@@ -164,6 +299,29 @@ if __name__ == "__main__":
         "--subset_size", type=int, default=500, help="Number of examples to use for quick search"
     )
     parser.add_argument("--epochs", type=int, default=5, help="Maximum epochs per trial")
+    parser.add_argument(
+        "--experiment_name",
+        type=str,
+        default="adomics_hp_search",
+        help="Name of the experiment for tracking",
+    )
+    parser.add_argument(
+        "--fine_tuning",
+        action="store_true",
+        help="Whether to perform fine-tuning around best parameters from a previous experiment",
+    )
+    parser.add_argument(
+        "--coarse_experiment_name",
+        type=str,
+        default=None,
+        help="Name of the coarse-grained experiment to use for fine-tuning",
+    )
+    parser.add_argument(
+        "--range_multiplier",
+        type=float,
+        default=0.5,
+        help="Range multiplier for fine-tuning search space (0.5 means +/- 50%)",
+    )
 
     args = parser.parse_args()
 
@@ -172,4 +330,8 @@ if __name__ == "__main__":
         num_samples=args.num_trials,
         num_epochs=args.epochs,
         subset_size=args.subset_size,
+        experiment_name=args.experiment_name,
+        coarse_experiment_name=args.coarse_experiment_name,
+        is_fine_tuning=args.fine_tuning,
+        range_multiplier=args.range_multiplier,
     )
