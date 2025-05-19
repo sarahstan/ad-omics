@@ -95,3 +95,31 @@ This project aims to build on the approach introduced in ScAtt (Liu et al.) by d
 3. Quantitative characterization of disease-specific changes to gene regulatory networks
 4. Identification of potential therapeutic targets with associated confidence levels
 5. Methodological framework applicable to diverse disease contexts
+
+# Model Mathematics
+
+Imagine a simple example like:
+$$
+x = (\textrm{genes}, \textrm{gene counts}, \textrm{cell type}) = ([1,17,10769], [1.00,0.20, 0.50], [5])
+$$
+
+We have a cell-state encoder and a transformer.
+
+The cell state encoder has:
+
+1. An embedding layer for the genes:
+$$
+E_{\textrm{gene}_i} = M_{\textrm{gene}_i} \cdot \hat{e}_{\textrm{gene}_i}
+$$
+where
+  - $M_{\textrm{gene}_i}$ is an $d_{\textrm{gene embedding}} \times n_{\textrm{gene}}$ matrix
+  - $\hat{e}_{\textrm{gene}_i}$ is a unit vector of size $n_{\textrm{gene}}$ corresponding to the $i$-th gene
+  - So the gene-embedding is a simple lookup in the $M_{\textrm{gene}_i}$ matrix.
+2. A linear layer for the gene counts:
+$$
+C_{\textrm{gene}_i} = M_{\textrm{counts}_i} \cdot \vec{c}
+$$
+where
+  - $M_{\textrm{counts}_i}$ is an $d_{\textrm{gene count}} \times 1$ vector
+  - $\hat{c}_{\textrm{gene}_i}$ is a vector of size $n_{\textrm{gene}}$ corresponding to the $i$-th gene count
+  - So the gene-count representation is a linear transformation of the gene embeddings.
