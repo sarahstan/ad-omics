@@ -28,7 +28,7 @@ class CellStateEncoder(nn.Module):
         self.count_embedding = nn.Linear(1, gene_embedding_dim)
 
         # Cell type embedding
-        self.cell_type_embedding = nn.Linear(num_cell_types, gene_embedding_dim)
+        self.cell_type_embedding = nn.Embedding(num_cell_types, gene_embedding_dim)
 
         # FiLM conditioning
         self.use_film = use_film
@@ -59,14 +59,14 @@ class CellStateEncoder(nn.Module):
             nn.init.zeros_(self.count_embedding.bias)
 
         nn.init.normal_(self.cell_type_embedding.weight, mean=0.0, std=0.02)
-        if self.cell_type_embedding.bias is not None:
-            nn.init.zeros_(self.cell_type_embedding.bias)
+        # if self.cell_type_embedding.bias is not None:
+        #     nn.init.zeros_(self.cell_type_embedding.bias)
 
     def forward(
         self,
         gene_indices: torch.Tensor,
         gene_values: torch.Tensor,
-        cell_type: torch.Tensor,
+        cell_type_indices: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
     ):
         """
@@ -77,8 +77,8 @@ class CellStateEncoder(nn.Module):
                          Indices of expressed genes (integers from 0 to num_genes-1)
             gene_values: Tensor of shape [batch_size, max_seq_len]
                          Expression counts for each gene
-            cell_type: Tensor of shape [batch_size, num_cell_types]
-                       One-hot encoded cell type
+            cell_type_indices: Tensor of shape [batch_size]
+                               Indices of the cell type
             attention_mask: Optional tensor of shape [batch_size, max_seq_len]
                            Boolean mask for padding (1 for real tokens, 0 for padding)
 
@@ -105,7 +105,9 @@ class CellStateEncoder(nn.Module):
         )  # [batch_size, max_seq_len, gene_embedding_dim]
 
         # Embed cell type
-        cell_embedding = self.cell_type_embedding(cell_type)  # [batch_size, gene_embedding_dim]
+        cell_embedding = self.cell_type_embedding(
+            cell_type_indices
+        )  # [batch_size, gene_embedding_dim]
 
         if self.use_film:
             # Generate FiLM conditioning parameters
