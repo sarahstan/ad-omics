@@ -1,4 +1,11 @@
 # scPLOT
+
+"""
+scPLOT: A module for visualizing single-cell data 
+(specifically, ROSMAP from Sun et al., 2023) with Plotly.
+Works with scDATA class in scdata.py
+"""  
+
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -10,13 +17,32 @@ import pandas as pd
 
 
 class scPLOT:
-    def __init__(self, sc_data):
+    """
+    A class for visualizing single-cell data with Plotly.
+    
+    Parameters
+    ----------
+    sc_data : AnnData
+        Scanpy AnnData object containing single-cell data.
+    
+    Run the full pipeline like this:
+    --------
+    >>> ad_path = 'your/data/path'
+    >>> ad_data = scDATA(ad_path,verbose=True) # for print output
+    >>> fig_directory= 'your/fig/path'
+    >>> ad_plot = scPLOT(ad_data,fig_directory) # to save figs
+    >>> ad_plot.run_pipeline(plot_figs=True)
+    """
+    def __init__(self, sc_data, save_path=""):
         self.sc_data = sc_data
+        self.save_path=save_path
+        #if a save path, save=true
 
-    def save_fig(self, fig, save_path):
-        fig.write_image(save_path)
+    def save_fig(self, fig, path_with_extension):
+        if self.save_path:
+            fig.write_image(path_with_extension)
 
-    def plot_qc_metrics(self, save_path=None):
+    def plot_qc_metrics(self):
         # save path should end filename.png
         # Plot QC violin plots
         # Create subplots
@@ -71,11 +97,12 @@ class scPLOT:
         # Update layout
         fig.update_layout(height=400, width=1000, title_text="QC Metrics Distribution")
         # Save fig as PNG
-        if save_path:
-            self.save_fig(fig, save_path)
+        if self.save_path:
+            path_with_extension = self.save_path + "QC_Metrics.png"
+            self.save_fig(fig,path_with_extension)
         return fig
 
-    def plot_qc_scatter(self, save_path=None):
+    def plot_qc_scatter(self):
         # save path should end filename.png``
         # Create a figure with 2 subplots
         fig = make_subplots(
@@ -113,11 +140,12 @@ class scPLOT:
         fig.update_xaxes(title_text="Genes detected", row=1, col=2)
         fig.update_yaxes(title_text="Mitochondrial %", row=1, col=2)
         # Save fig as PNG
-        if save_path:
-            self.save_fig(fig, save_path)
+        if self.save_path:
+            path_with_extension = self.save_path + "QC_Scatter.png"
+            self.save_fig(fig,path_with_extension)
         return fig
 
-    def plot_celltype_composition(self, cellcolumn, save_path=None):
+    def plot_celltype_composition(self, cellcolumn):
         # Count cells by celltype (cellcolumn should be celltypefull or celltype)
         celltype_counts = self.sc_data.metadata[cellcolumn].value_counts().reset_index()
         celltype_counts.columns = [cellcolumn, "count"]
@@ -133,11 +161,12 @@ class scPLOT:
         fig.update_traces(textposition="inside", textinfo="percent+label")
         fig.update_layout(height=500, width=700)
         # Save fig as PNG
-        if save_path:
-            self.save_fig(fig, save_path)
+        if self.save_path:
+            path_with_extension = self.save_path + "Celltype_Composition_" + cellcolumn + ".png"
+            self.save_fig(fig,path_with_extension)
         return fig
 
-    def plot_meta1_by_meta2(self, col1, col2, title=None, save_path=None):
+    def plot_meta1_by_meta2(self, col1, col2, title=None):
         # Group by col1 and col2, barplot
         # Ex: 'subject', 'celltype'
         grouped = self.sc_data.metadata.groupby([col1, col2]).size().reset_index(name="count")
@@ -156,11 +185,12 @@ class scPLOT:
 
         fig.update_layout(height=500, width=900)
         # Save fig as PNG
-        if save_path:
-            self.save_fig(fig, save_path)
+        if self.save_path:
+            path_with_extension = self.save_path + "Plot_" + col1 + "_by_" + col2 + ".png"
+            self.save_fig(fig,path_with_extension)
         return fig
 
-    def plot_preprocessing_state(self, save_path=None):
+    def plot_preprocessing_state(self):
         # Visualize the preprocessing state of the data
         # Check if analysis has been run
         if not hasattr(self.sc_data, "preprocessing_state"):
@@ -225,25 +255,25 @@ class scPLOT:
                 print(f"- {state_name}: No")
 
         # Save fig as PNG
-        if save_path:
-            self.save_fig(fig, save_path)
-
+        if self.save_path:
+            path_with_extension = self.save_path + "Plot_Preprocessing_State.png"
+            self.save_fig(fig,path_with_extension)
         return fig
 
-    def plot_pca(self, color_by="celltype", save_path=None):
+    def plot_pca(self, color_by="celltype"):
         # Plot PCA colored by metadata
         pca_df = pd.DataFrame(
             self.sc_data.adata_hvg.obsm["X_pca_harmony"][:, :2],
             index=self.sc_data.adata_hvg.obs.index,
             columns=["PC1", "PC2"],
         )
-        pca_df["celltype"] = self.sc_data.metadata.loc[pca_df.index, "celltype"]
+        pca_df[color_by] = self.sc_data.metadata.loc[pca_df.index, color_by]
 
         fig = px.scatter(
             pca_df,
             x="PC1",
             y="PC2",
-            color="celltype",
+            color=color_by,
             title="PCA Visualization",
             color_discrete_sequence=px.colors.qualitative.Bold,
         )
@@ -251,11 +281,12 @@ class scPLOT:
         fig.update_layout(height=600, width=800)
         fig.show()
         # Save fig as PNG
-        if save_path:
-            self.save_fig(fig, save_path)
+        if self.save_path:
+            path_with_extension = self.save_path + "Plot_PCA_by_" + color_by + ".png"
+            self.save_fig(fig,path_with_extension)
         return fig
 
-    def plot_umap(self, color_by="celltype", save_path=None):
+    def plot_umap(self, color_by="celltype"):
         # Plot UMAP (self.sc_data.embedding_df) colored by metadata
         # some color_by options = 'celltype','brain_region','ADdiag2types','subject'
 
@@ -281,11 +312,12 @@ class scPLOT:
         fig.show()
 
         # Save fig as PNG
-        if save_path:
-            self.save_fig(fig, save_path)
+        if self.save_path:
+            path_with_extension = self.save_path + "Plot_UMAP_by_" + color_by + ".png"
+            self.save_fig(fig,path_with_extension)
         return fig
 
-    def plot_marker_expression(self, cell_type_col="celltype", save_path=None):
+    def plot_marker_expression(self, cell_type_col="celltype"):
         # Generate violin plots of expression for celltype marker genes defined in scDATA class
         if not self.sc_data.present_markers:
             print("No marker genes found in the dataset.")
@@ -333,11 +365,12 @@ class scPLOT:
             )
             fig.show()
         # Save fig as PNG
-        if save_path:
-            self.save_fig(fig, save_path)
+        if self.save_path:
+            path_with_extension = self.save_path + "Plot_Marker_Violin_by_" + cell_type_col + ".png"
+            self.save_fig(fig,path_with_extension)
         return fig
 
-    def plot_marker_heatmap(self, cell_type_col="celltype", save_path=None):
+    def plot_marker_heatmap(self, cell_type_col="celltype"):
         # Create heatmap of marker gene expression by celltype
         if not self.sc_data.present_markers:
             print("No marker genes found in the dataset.")
@@ -352,12 +385,12 @@ class scPLOT:
         # Add cell type information
         expr_df[cell_type_col] = self.sc_data.metadata.loc[expr_df.index, cell_type_col]
         # Calculate mean expression by cell type
-        marker_means = expr_df.groupby(cell_type_col)[self.sc_data.present_markers].mean()
+        self.marker_means = expr_df.groupby(cell_type_col)[self.sc_data.present_markers].mean()
         # Z-score
-        marker_zscores = marker_means.apply(zscore, axis=0, nan_policy="omit")
+        self.marker_zscores = self.marker_means.apply(zscore, axis=0, nan_policy="omit")
         # Create heatmap
         fig = px.imshow(
-            marker_zscores,
+            self.marker_zscores,
             labels={"x": "Gene", "y": "Cell Type", "color": "Z-score"},
             color_continuous_scale="RdBu_r",
             title="Cell Type Marker Expression",
@@ -365,6 +398,59 @@ class scPLOT:
         fig.update_layout(height=600, width=900)
         fig.show()
         # Save fig as PNG
-        if save_path:
-            self.save_fig(fig, save_path)
-        return marker_zscores, fig  # Return the data and fig
+        if self.save_path:
+            path_with_extension = self.save_path + "Plot_Marker_Heatmap_by_" + cell_type_col + ".png"
+            self.save_fig(fig,path_with_extension)
+        return fig
+        
+    def run_pipeline(self,plot_figs=False):
+        #Run complete pipeline on instance of scPLOT generated from scDATA        
+        #User: defines directory, creates scDATA instance, uses instance to initialize
+        # scPLOT instance, runs this function
+
+        # Add the full cell type names
+        self.sc_data.add_column_by_column("celltype", "celltypefull")
+
+        # Check pre-processing
+        self.sc_data.check_data_preprocessing()
+
+        # Run quality control
+        self.sc_data.qc_summary = self.sc_data.quality_control(min_genes=200, min_cells=3)
+
+        if plot_figs:
+            # Visualize quality control
+            self.plot_preprocessing_state()
+
+            # Visualize QC metrics
+            self.plot_qc_metrics()
+            self.plot_qc_scatter()
+
+            #Visualize cell distribution for AD dataset
+            self.plot_celltype_composition("celltype")
+            self.plot_meta1_by_meta2("subject", "celltype")
+            self.plot_meta1_by_meta2("ADdiag2types", "celltype")
+
+        #Run dimensionality reduction using PCA
+        self.sc_data.find_variable_genes(n_top_genes=2000)
+        self.sc_data.run_pca(n_comps=30)
+
+        #Run Harmony and UMAP using generated PCA
+        self.sc_data.run_harmony(batch_key="batch")
+        self.sc_data.run_umap()
+
+        if plot_figs:
+            #Visualize PCA
+            self.plot_pca()
+
+            #Visualize UMAP in multiple ways
+            color_by=["celltype", "cellsubtype", "brain_region", "ADdiag2types", "subject"]
+            for meta in color_by:
+                self.plot_umap(color_by=meta)
+
+            #Visualize expression of marker genes using Violin plots
+            self.plot_marker_expression()
+
+            #Visualize marker gene expression by celltype in heatmap
+            self.plot_marker_heatmap()
+
+        print('Run pipeline complete.')
