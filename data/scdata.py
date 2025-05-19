@@ -1,3 +1,8 @@
+"""
+scDATA: A module for processing single-cell data 
+(specifically, ROSMAP from Sun et al., 2023). Works with 
+scPLOT class in scplot.py
+"""  
 import os
 import pyreadr
 import scanpy as sc
