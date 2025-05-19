@@ -6,7 +6,10 @@ from models.cell_state_encoder import CellStateEncoder
 
 @dataclass
 class CellStateEncoderParameters:
-    """Parameters for the CellStateEncoder model."""
+    """
+    Parameters for the CellStateEncoder model.
+    Made up for the purpose of testing.
+    """
 
     def __init__(
         self,
@@ -30,13 +33,10 @@ class CellStateEncoderParameters:
             dropout: Dropout rate
         """
         super().__init__()
-        self.batch_size = batch_size
-        self.num_genes = num_genes
-        self.max_seq_len = max_seq_len
-        self.gene_embedding_dim = gene_embedding_dim
-        self.num_cell_types = num_cell_types
-        self.use_film = use_film
-        self.dropout = dropout
+        # Set attributes from the init parameters
+        for key, value in locals().items():
+            if key != "self":
+                setattr(self, key, value)
 
 
 @pytest.fixture
