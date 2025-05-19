@@ -93,12 +93,9 @@ def gene_token_data(cse_params: CellStateEncoderParameters) -> tuple:
 @pytest.fixture
 def cell_type(cse_params: CellStateEncoderParameters) -> torch.Tensor:
     """Fixture to create a tensor of cell types."""
-    # Create a one-hot encoded tensor for cell types
-    cell_type = torch.zeros(cse_params.batch_size, cse_params.num_cell_types)
-    cell_type[
-        torch.arange(cse_params.batch_size),
-        torch.randint(0, cse_params.num_cell_types, (cse_params.batch_size,)),
-    ] = 1.0
+    # Create an integer tensor representing cell types
+    torch.manual_seed(42)  # For reproducibility
+    cell_type = torch.randint(0, cse_params.num_cell_types, (cse_params.batch_size,))
     return cell_type
 
 
