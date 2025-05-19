@@ -136,5 +136,5 @@ def test_token_representation(
         error_str = "The gene indices and values should have the same length."
         assert len(example.gene_indices) == len(example.gene_counts), error_str
 
-        error_str = "The shape of cell_type should match dataset_train_tokens.scdata.cell_types."
-        assert example.cell_type.shape[0] == len(dataset_train_tokens.scdata.cell_types), error_str
+        error_str = "The cell type should be an integer in [0, number of cell type])."
+        assert example.cell_type in range(len(dataset_train_tokens.scdata.cell_types)), error_str

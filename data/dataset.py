@@ -7,7 +7,7 @@ from sklearn.preprocessing import RobustScaler
 import enum
 
 
-class GeneRepresentation(enum.Enum):
+class Representation(enum.Enum):
     VECTOR = "vector"
     TOKENS = "tokens"
 
@@ -33,9 +33,9 @@ class ADOmicsDataset(Dataset):
         self.scdata = scDATA
         self.subset = subset
         if representation == "vector":
-            self.gene_representation = GeneRepresentation.VECTOR
+            self.representation = Representation.VECTOR
         elif representation == "tokens":
-            self.gene_representation = GeneRepresentation.TOKENS
+            self.representation = Representation.TOKENS
         else:
             error_str = f"Invalid representation: {representation}. " "Choose 'vector' or 'tokens'."
             raise ValueError(error_str)
@@ -90,6 +90,17 @@ class ADOmicsDataset(Dataset):
         non_zero_values = data[non_zero_indices]
         return non_zero_indices, non_zero_values
 
+    def _get_cell_type_one_hot(self, index: int) -> torch.Tensor:
+        # Convert the cell type index to a one-hot encoded vector
+        cell_type = torch.zeros(len(self.scdata.cell_types), dtype=torch.float32)
+        cell_type[self.metadata.cell_type.iloc[index]] = 1.0
+        return cell_type
+
+    def _get_cell_type_token(self, index: int) -> int:
+        # Convert the cell type index to a one-hot encoded vector
+        cell_type = self.metadata.cell_type.iloc[index]
+        return cell_type
+
     def __getitem__(
         self,
         index: int,
@@ -105,21 +116,20 @@ class ADOmicsDataset(Dataset):
         Returns:
             Union[VectorData, TokenData]: The data, cell type, and label.
         """
-        # Convert the cell type index to a one-hot encoded vector
-        cell_type = torch.zeros(len(self.scdata.cell_types), dtype=torch.float32)
-        cell_type[self.metadata.cell_type.iloc[index]] = 1.0
         # Convert the label to a tensor
         label = torch.tensor(self.metadata.label.iloc[index]).to(torch.float32)
         # Convert the data to a tensor
-        if self.gene_representation == GeneRepresentation.VECTOR:
-            data = self._get_gene_vector(index, normalize)
+        if self.representation == Representation.VECTOR:
+            gene_vector = self._get_gene_vector(index, normalize)
+            cell_type = self._get_cell_type_one_hot(index)
             return VectorData(
-                gene_vector=data,
+                gene_vector=gene_vector,
                 cell_type=cell_type,
                 label=label,
             )
-        elif self.gene_representation == GeneRepresentation.TOKENS:
+        elif self.representation == Representation.TOKENS:
             gene_tokens, gene_counts = self._get_gene_tokens(index, normalize)
+            cell_type = self._get_cell_type_token(index)
             return TokenData(
                 gene_indices=gene_tokens,
                 gene_counts=gene_counts,
@@ -127,6 +137,6 @@ class ADOmicsDataset(Dataset):
                 label=label,
             )
         else:
-            error_str = f"Invalid gene representation: {self.gene_representation}. "
+            error_str = f"Invalid gene representation: {self.representation}. "
             error_str += "Choose 'vector' or 'tokens'."
             raise ValueError(error_str)
