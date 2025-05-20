@@ -56,7 +56,8 @@ class ADPredictionModel(nn.Module):
             cell_type_indices: Tensor of shape [batch_size]
                                Indices of the cell type
             attention_mask: Optional tensor of shape [batch_size, max_seq_len]
-                           Attention mask where 1 means token should be attended to and 0 means it should be ignored
+                           Attention mask where 1 means token should be attended
+                           to and 0 means it should be ignored
             gene_regulatory_matrix: Optional tensor of shape [max_seq_len, max_seq_len]
                                     Matrix encoding gene-gene regulatory interactions
 
