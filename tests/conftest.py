@@ -116,8 +116,10 @@ def generate_gene_data():
 
 
 @pytest.fixture
-def gene_token_data(model_params, generate_gene_data):
+def gene_token_data(model_params):
     """Fixture to create token representation of gene data for all tests."""
+    from tests.utils import generate_gene_data
+
     return generate_gene_data(
         batch_size=model_params.batch_size,
         num_genes=model_params.num_genes,

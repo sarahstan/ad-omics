@@ -81,3 +81,37 @@ def check_sequence_attention(
     # Check if the attention patterns match
     error_str = f"Sequence-to-sequence attention in layer {layer_idx}, head {head_idx} is not permutation equivariant"
     assert torch.allclose(orig_seq_seq, reordered_perm_seq_seq, atol=1e-5), error_str
+
+
+def generate_gene_data(batch_size, num_genes, max_seq_len, seed=42):
+    """Generate random gene expression data for testing."""
+    torch.manual_seed(seed)  # For reproducibility
+
+    # Generate unique random gene indices for each sample in the batch
+    gene_indices = []
+    gene_values = []
+
+    for _ in range(batch_size):
+        # Sample a random number of expressed genes (between 100 and max_seq_len)
+        num_expressed = torch.randint(100, max_seq_len, (1,)).item()
+
+        # Sample random gene indices (without replacement)
+        indices = torch.randperm(num_genes)[:num_expressed]
+        gene_indices.append(indices)
+
+        # Generate random expression values for each gene
+        values = torch.abs(torch.randn(num_expressed))
+        gene_values.append(values)
+
+    # Create attention mask and pad to max_seq_len
+    padded_indices = torch.zeros(batch_size, max_seq_len, dtype=torch.long)
+    padded_values = torch.zeros(batch_size, max_seq_len, dtype=torch.float)
+    attention_mask = torch.zeros(batch_size, max_seq_len, dtype=torch.bool)
+
+    for i, (indices, values) in enumerate(zip(gene_indices, gene_values)):
+        seq_len = indices.size(0)
+        padded_indices[i, :seq_len] = indices
+        padded_values[i, :seq_len] = values
+        attention_mask[i, :seq_len] = True
+
+    return padded_indices, padded_values, attention_mask
