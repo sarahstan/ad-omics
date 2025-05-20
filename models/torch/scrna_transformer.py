@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from typing import Optional, Tuple, List
-from .transformer_encoder_layer import TransformerEncoderLayer
+from .transformer_encoder import TransformerEncoderLayer
 
 
 class ScRNATransformer(nn.Module):
@@ -70,7 +70,8 @@ class ScRNATransformer(nn.Module):
         Args:
             x: Input tensor of shape [batch_size, seq_len, embed_dim] from CellStateEncoder
             attention_mask: Optional tensor of shape [batch_size, seq_len]
-                            Attention mask where 1 means token should be attended to and 0 means it should be ignored
+                            Attention mask where 1 means token should be attended to
+                            and 0 means it should be ignored
             gene_regulatory_matrix: Optional tensor of shape [seq_len, seq_len]
                                    Matrix encoding gene-gene regulatory interactions
 

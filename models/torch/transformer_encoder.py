@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 from typing import Optional, Tuple
-from .multi_head_attention import MultiHeadAttention
-from .feed_forward import FeedForward
+from .multihead_attention import MultiHeadAttention
+from .feedforward import FeedForward
 
 
 class TransformerEncoderLayer(nn.Module):
