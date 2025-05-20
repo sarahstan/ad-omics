@@ -2,14 +2,12 @@ import pytest
 import torch
 from dataclasses import dataclass
 from models.cell_state_encoder import CellStateEncoder
+from tests.utils import create_permutation, create_inverse_permutation, create_permuted_data
 
 
 @dataclass
 class CellStateEncoderParameters:
-    """
-    Parameters for the CellStateEncoder model.
-    Made up for the purpose of testing.
-    """
+    """Parameters for the CellStateEncoder model."""
 
     def __init__(
         self,
@@ -21,17 +19,7 @@ class CellStateEncoderParameters:
         use_film: bool = True,
         dropout: float = 0.1,
     ) -> None:
-        """
-        Initialize the parameters for the CellStateEncoder.
-        Args:
-            batch_size: Batch size for the model
-            num_genes: Total vocabulary of genes
-            max_seq_len: Maximum sequence length (expressed genes per cell)
-            gene_embedding_dim: Dimension for gene embeddings
-            num_cell_types: Number of cell types
-            use_film: Whether to use FiLM conditioning
-            dropout: Dropout rate
-        """
+        """Initialize the parameters for CellStateEncoder tests."""
         super().__init__()
         # Set attributes from the init parameters
         for key, value in locals().items():
@@ -40,9 +28,11 @@ class CellStateEncoderParameters:
 
 
 @pytest.fixture
-def cse_params() -> CellStateEncoderParameters:
+def cse_params(scdata) -> CellStateEncoderParameters:
     """Fixture to create parameters for testing."""
-    return CellStateEncoderParameters()
+    params = CellStateEncoderParameters()
+    params.num_cell_types = len(scdata.cell_types)
+    return params
 
 
 @pytest.fixture
@@ -58,36 +48,13 @@ def cell_state_encoder(cse_params: CellStateEncoderParameters) -> CellStateEncod
 
 
 @pytest.fixture
-def gene_token_data(cse_params: CellStateEncoderParameters) -> tuple:
+def gene_token_data(cse_params: CellStateEncoderParameters, generate_gene_data) -> tuple:
     """Fixture to create token representation of gene data."""
-    # Generate unique random gene indices for each sample in the batch
-    gene_indices = []
-    gene_values = []
-
-    for _ in range(cse_params.batch_size):
-        # Sample a random number of expressed genes (between 100 and max_seq_len)
-        num_expressed = torch.randint(100, cse_params.max_seq_len, (1,)).item()
-
-        # Sample random gene indices (without replacement)
-        indices = torch.randperm(cse_params.num_genes)[:num_expressed]
-        gene_indices.append(indices)
-
-        # Generate random expression values for each gene
-        values = torch.abs(torch.randn(num_expressed))
-        gene_values.append(values)
-
-    # Create attention mask and pad to max_seq_len
-    padded_indices = torch.zeros(cse_params.batch_size, cse_params.max_seq_len, dtype=torch.long)
-    padded_values = torch.zeros(cse_params.batch_size, cse_params.max_seq_len, dtype=torch.float)
-    attention_mask = torch.zeros(cse_params.batch_size, cse_params.max_seq_len, dtype=torch.bool)
-
-    for i, (indices, values) in enumerate(zip(gene_indices, gene_values)):
-        seq_len = indices.size(0)
-        padded_indices[i, :seq_len] = indices
-        padded_values[i, :seq_len] = values
-        attention_mask[i, :seq_len] = True
-
-    return padded_indices, padded_values, attention_mask
+    return generate_gene_data(
+        batch_size=cse_params.batch_size,
+        num_genes=cse_params.num_genes,
+        max_seq_len=cse_params.max_seq_len,
+    )
 
 
 @pytest.fixture
@@ -138,51 +105,42 @@ def test_forward_permutation_equivariance(
         # Get the non-padded length for this sample
         seq_len = attention_mask[batch_idx].sum().item()
 
-        if seq_len > 1:  # Only test if we have at least 2 expressed genes
-            # Create a permutation of expressed genes for this sample
-            perm = torch.randperm(seq_len)
+        if seq_len <= 1:  # Only test if we have at least 2 expressed genes
+            continue
 
-            # Apply permutation to this sample's data
-            sample_indices = gene_indices[batch_idx, :seq_len][perm]
-            sample_values = gene_values[batch_idx, :seq_len][perm]
+        # Create a permutation of expressed genes for this sample
+        perm = create_permutation(seq_len)
 
-            # Create input tensors with just this single sample
-            original_indices = gene_indices[batch_idx : batch_idx + 1].clone()
-            original_values = gene_values[batch_idx : batch_idx + 1].clone()
-            original_mask = attention_mask[batch_idx : batch_idx + 1].clone()
+        # Create original and permuted data
+        original_indices, original_values, original_mask, permuted_indices, permuted_values = (
+            create_permuted_data(gene_token_data, perm, seq_len, batch_idx)
+        )
 
-            permuted_indices = original_indices.clone()
-            permuted_values = original_values.clone()
-            permuted_indices[0, :seq_len] = sample_indices
-            permuted_values[0, :seq_len] = sample_values
+        sample_cell_type = cell_type[batch_idx : batch_idx + 1]
 
-            sample_cell_type = cell_type[batch_idx : batch_idx + 1]
+        # Get the output for the original and permuted data
+        with torch.no_grad():
+            original_output = cell_state_encoder(
+                original_indices, original_values, sample_cell_type, original_mask
+            )
 
-            # Get the output for the original and permuted data
-            with torch.no_grad():
-                original_output = cell_state_encoder(
-                    original_indices, original_values, sample_cell_type, original_mask
-                )
+            permuted_output = cell_state_encoder(
+                permuted_indices, permuted_values, sample_cell_type, original_mask
+            )
 
-                permuted_output = cell_state_encoder(
-                    permuted_indices, permuted_values, sample_cell_type, original_mask
-                )
+        # Extract the non-padded portion
+        orig_emb = original_output[0, :seq_len]
+        perm_emb = permuted_output[0, :seq_len]
 
-            # Extract the non-padded portion
-            orig_emb = original_output[0, :seq_len]
-            perm_emb = permuted_output[0, :seq_len]
+        # Create mapping from permuted positions back to original positions
+        inverse_perm = create_inverse_permutation(perm)
 
-            # The permuted embeddings should match the original embeddings when reordered
-            # Create mapping from permuted positions back to original positions
-            inverse_perm = torch.zeros(seq_len, dtype=torch.long)
-            for i, p in enumerate(perm):
-                inverse_perm[p] = i
+        # Reorder the permuted embeddings to match the original order
+        reordered_perm_emb = perm_emb[inverse_perm]
 
-            reordered_perm_emb = perm_emb[inverse_perm]
-
-            # Check if the embeddings are equivariant to the permutation
-            assert torch.allclose(
-                orig_emb,
-                reordered_perm_emb,
-                atol=1e-6,
-            ), f"Output for batch {batch_idx} is not permutation equivariant"
+        # Check if the embeddings are equivariant to the permutation
+        assert torch.allclose(
+            orig_emb,
+            reordered_perm_emb,
+            atol=1e-6,
+        ), f"Output for batch {batch_idx} is not permutation equivariant"

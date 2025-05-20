@@ -1,0 +1,229 @@
+import pytest
+import torch
+from dataclasses import dataclass
+from models.cell_state_encoder import CellStateEncoder
+from models.torch.scrna_transformer import ScRNATransformer
+from tests.utils import (
+    create_permutation,
+    create_inverse_permutation,
+    create_permuted_data,
+    get_expected_attention_shape,
+    check_cls_token_attention,
+    check_sequence_attention,
+)
+
+
+@dataclass
+class TransformerParameters:
+    """Parameters for the ScRNATransformer model."""
+
+    def __init__(
+        self,
+        batch_size: int = 8,
+        num_genes: int = 15000,  # Total vocabulary size
+        max_seq_len: int = 500,  # Maximum sequence length (expressed genes)
+        embed_dim: int = 16,  # Embedding dimension
+        num_heads: int = 8,  # Number of attention heads
+        ff_dim: int = 64,  # Feed forward dimension
+        num_layers: int = 2,  # Number of transformer layers
+        num_cell_types: int = 12,
+        use_cls_token: bool = True,
+        dropout: float = 0.1,
+    ) -> None:
+        """Initialize the parameters for the Transformer test."""
+        super().__init__()
+        # Set attributes from the init parameters
+        for key, value in locals().items():
+            if key != "self":
+                setattr(self, key, value)
+
+
+@pytest.fixture
+def transformer_params(scdata) -> TransformerParameters:
+    """Fixture to create parameters for testing."""
+    params = TransformerParameters()
+    params.num_cell_types = len(scdata.cell_types)
+    return params
+
+
+@pytest.fixture
+def cell_state_encoder(transformer_params: TransformerParameters) -> CellStateEncoder:
+    """Fixture to create a CellStateEncoder instance for testing."""
+    return CellStateEncoder(
+        num_genes=transformer_params.num_genes,
+        gene_embedding_dim=transformer_params.embed_dim,
+        num_cell_types=transformer_params.num_cell_types,
+        use_film=True,
+        dropout=transformer_params.dropout,
+    )
+
+
+@pytest.fixture
+def scrna_transformer(transformer_params: TransformerParameters) -> ScRNATransformer:
+    """Fixture to create a ScRNATransformer instance for testing."""
+    return ScRNATransformer(
+        embed_dim=transformer_params.embed_dim,
+        num_heads=transformer_params.num_heads,
+        ff_dim=transformer_params.ff_dim,
+        num_layers=transformer_params.num_layers,
+        max_seq_len=transformer_params.max_seq_len,
+        dropout=transformer_params.dropout,
+        use_cls_token=transformer_params.use_cls_token,
+    )
+
+
+@pytest.fixture
+def gene_token_data(transformer_params: TransformerParameters, generate_gene_data) -> tuple:
+    """Fixture to create token representation of gene data."""
+    return generate_gene_data(
+        batch_size=transformer_params.batch_size,
+        num_genes=transformer_params.num_genes,
+        max_seq_len=transformer_params.max_seq_len,
+    )
+
+
+@pytest.fixture
+def cell_type(transformer_params: TransformerParameters) -> torch.Tensor:
+    """Fixture to create a tensor of cell types."""
+    # Create an integer tensor representing cell types
+    torch.manual_seed(42)  # For reproducibility
+    cell_type = torch.randint(
+        0, transformer_params.num_cell_types, (transformer_params.batch_size,)
+    )
+    return cell_type
+
+
+def test_forward(
+    transformer_params: TransformerParameters,
+    cell_state_encoder: CellStateEncoder,
+    scrna_transformer: ScRNATransformer,
+    gene_token_data: tuple,
+    cell_type: torch.Tensor,
+):
+    """Test the forward method of ScRNATransformer."""
+    gene_indices, gene_values, attention_mask = gene_token_data
+
+    # Get embeddings from CellStateEncoder
+    gene_embeddings = cell_state_encoder(gene_indices, gene_values, cell_type, attention_mask)
+
+    # Convert boolean mask to float mask
+    float_attention_mask = attention_mask.float()
+
+    # Pass through transformer
+    logits, attention_weights = scrna_transformer(gene_embeddings, float_attention_mask)
+
+    # Check logits shape
+    assert logits.shape == (transformer_params.batch_size,), "Logits shape mismatch"
+
+    # Check attention weights shape: should be a list of tensors, one per layer
+    assert (
+        len(attention_weights) == transformer_params.num_layers
+    ), "Incorrect number of attention weight layers"
+
+    # Get expected attention shape
+    expected_shape = get_expected_attention_shape(
+        transformer_params.batch_size,
+        transformer_params.num_heads,
+        transformer_params.max_seq_len,
+        transformer_params.use_cls_token,
+    )
+
+    # Check shape of each attention weight tensor
+    for layer_idx, attn_weights in enumerate(attention_weights):
+        assert (
+            attn_weights.shape == expected_shape
+        ), f"Attention weights shape mismatch in layer {layer_idx}: {attn_weights.shape} vs {expected_shape}"
+
+
+def test_transformer_permutation_equivariance(
+    transformer_params: TransformerParameters,
+    cell_state_encoder: CellStateEncoder,
+    scrna_transformer: ScRNATransformer,
+    gene_token_data: tuple,
+    cell_type: torch.Tensor,
+):
+    """
+    Test the permutation equivariance of the ScRNATransformer.
+
+    The test verifies that permuting the order of genes in the input
+    should maintain the same relative attention patterns (after accounting
+    for the permutation).
+    """
+    # Set models to evaluation mode
+    cell_state_encoder.eval()
+    scrna_transformer.eval()
+
+    # Convert boolean mask to float mask
+    attention_mask = gene_token_data[2]
+    float_attention_mask = attention_mask.float()
+
+    # Test permutation equivariance for one sample in the batch
+    batch_idx = 0
+
+    # Get the non-padded length for this sample
+    seq_len = attention_mask[batch_idx].sum().item()
+
+    if seq_len <= 1:
+        pytest.skip("Skipping test as sequence length is too short for meaningful permutation test")
+
+    # Create a permutation of expressed genes for this sample
+    torch.manual_seed(42)
+    perm = create_permutation(seq_len)
+
+    # Create original and permuted data
+    original_indices, original_values, original_mask, permuted_indices, permuted_values = (
+        create_permuted_data(gene_token_data, perm, seq_len, batch_idx)
+    )
+
+    # Create float mask for transformer
+    original_float_mask = original_mask.float()
+
+    # Get cell type for this sample
+    sample_cell_type = cell_type[batch_idx : batch_idx + 1]
+
+    # Create inverse permutation mapping
+    inverse_perm = create_inverse_permutation(perm)
+
+    # Process data through the models
+    with torch.no_grad():
+        # Original flow
+        original_embeddings = cell_state_encoder(
+            original_indices, original_values, sample_cell_type, original_mask
+        )
+        original_logits, original_attention = scrna_transformer(
+            original_embeddings, original_float_mask
+        )
+
+        # Permuted flow
+        permuted_embeddings = cell_state_encoder(
+            permuted_indices, permuted_values, sample_cell_type, original_mask
+        )
+        permuted_logits, permuted_attention = scrna_transformer(
+            permuted_embeddings, original_float_mask
+        )
+
+    # Check attention patterns for each layer
+    for layer_idx in range(transformer_params.num_layers):
+        orig_attn = original_attention[layer_idx][0]  # First batch item
+        perm_attn = permuted_attention[layer_idx][0]  # First batch item
+
+        # Check CLS token attention if used
+        if transformer_params.use_cls_token:
+            check_cls_token_attention(orig_attn, perm_attn, inverse_perm, seq_len, layer_idx)
+
+        # Check sequence-to-sequence attention for each head
+        for head_idx in range(transformer_params.num_heads):
+            check_sequence_attention(
+                orig_attn,
+                perm_attn,
+                inverse_perm,
+                seq_len,
+                layer_idx,
+                head_idx,
+                transformer_params.use_cls_token,
+            )
+
+    # Finally, check that the prediction remains unchanged
+    assert torch.allclose(
+        original_logits, permuted_logits, atol=1e-5
+    ), "Transformer output logits changed after gene permutation"
