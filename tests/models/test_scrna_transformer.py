@@ -1,6 +1,5 @@
 import pytest
 import torch
-from dataclasses import dataclass
 from models.cell_state_encoder import CellStateEncoder
 from models.torch.scrna_transformer import ScRNATransformer
 from tests.utils import (
@@ -13,88 +12,22 @@ from tests.utils import (
 )
 
 
-@dataclass
-class TransformerParameters:
-    """Parameters for the ScRNATransformer model."""
-
-    def __init__(
-        self,
-        batch_size: int = 8,
-        num_genes: int = 15000,  # Total vocabulary size
-        max_seq_len: int = 500,  # Maximum sequence length (expressed genes)
-        embed_dim: int = 16,  # Embedding dimension
-        num_heads: int = 8,  # Number of attention heads
-        ff_dim: int = 64,  # Feed forward dimension
-        num_layers: int = 2,  # Number of transformer layers
-        num_cell_types: int = 12,
-        use_cls_token: bool = True,
-        dropout: float = 0.1,
-    ) -> None:
-        """Initialize the parameters for the Transformer test."""
-        super().__init__()
-        # Set attributes from the init parameters
-        for key, value in locals().items():
-            if key != "self":
-                setattr(self, key, value)
-
-
 @pytest.fixture
-def transformer_params(scdata) -> TransformerParameters:
-    """Fixture to create parameters for testing."""
-    params = TransformerParameters()
-    params.num_cell_types = len(scdata.cell_types)
-    return params
-
-
-@pytest.fixture
-def cell_state_encoder(transformer_params: TransformerParameters) -> CellStateEncoder:
-    """Fixture to create a CellStateEncoder instance for testing."""
-    return CellStateEncoder(
-        num_genes=transformer_params.num_genes,
-        gene_embedding_dim=transformer_params.embed_dim,
-        num_cell_types=transformer_params.num_cell_types,
-        use_film=True,
-        dropout=transformer_params.dropout,
-    )
-
-
-@pytest.fixture
-def scrna_transformer(transformer_params: TransformerParameters) -> ScRNATransformer:
+def scrna_transformer(model_params) -> ScRNATransformer:
     """Fixture to create a ScRNATransformer instance for testing."""
     return ScRNATransformer(
-        embed_dim=transformer_params.embed_dim,
-        num_heads=transformer_params.num_heads,
-        ff_dim=transformer_params.ff_dim,
-        num_layers=transformer_params.num_layers,
-        max_seq_len=transformer_params.max_seq_len,
-        dropout=transformer_params.dropout,
-        use_cls_token=transformer_params.use_cls_token,
+        embed_dim=model_params.embed_dim,
+        num_heads=model_params.num_heads,
+        ff_dim=model_params.ff_dim,
+        num_layers=model_params.num_layers,
+        max_seq_len=model_params.max_seq_len,
+        dropout=model_params.dropout,
+        use_cls_token=model_params.use_cls_token,
     )
-
-
-@pytest.fixture
-def gene_token_data(transformer_params: TransformerParameters, generate_gene_data) -> tuple:
-    """Fixture to create token representation of gene data."""
-    return generate_gene_data(
-        batch_size=transformer_params.batch_size,
-        num_genes=transformer_params.num_genes,
-        max_seq_len=transformer_params.max_seq_len,
-    )
-
-
-@pytest.fixture
-def cell_type(transformer_params: TransformerParameters) -> torch.Tensor:
-    """Fixture to create a tensor of cell types."""
-    # Create an integer tensor representing cell types
-    torch.manual_seed(42)  # For reproducibility
-    cell_type = torch.randint(
-        0, transformer_params.num_cell_types, (transformer_params.batch_size,)
-    )
-    return cell_type
 
 
 def test_forward(
-    transformer_params: TransformerParameters,
+    model_params,
     cell_state_encoder: CellStateEncoder,
     scrna_transformer: ScRNATransformer,
     gene_token_data: tuple,
@@ -113,30 +46,30 @@ def test_forward(
     logits, attention_weights = scrna_transformer(gene_embeddings, float_attention_mask)
 
     # Check logits shape
-    assert logits.shape == (transformer_params.batch_size,), "Logits shape mismatch"
+    assert logits.shape == (model_params.batch_size,), "Logits shape mismatch"
 
     # Check attention weights shape: should be a list of tensors, one per layer
     assert (
-        len(attention_weights) == transformer_params.num_layers
+        len(attention_weights) == model_params.num_layers
     ), "Incorrect number of attention weight layers"
 
     # Get expected attention shape
     expected_shape = get_expected_attention_shape(
-        transformer_params.batch_size,
-        transformer_params.num_heads,
-        transformer_params.max_seq_len,
-        transformer_params.use_cls_token,
+        model_params.batch_size,
+        model_params.num_heads,
+        model_params.max_seq_len,
+        model_params.use_cls_token,
     )
 
     # Check shape of each attention weight tensor
     for layer_idx, attn_weights in enumerate(attention_weights):
-        assert (
-            attn_weights.shape == expected_shape
-        ), f"Attention weights shape mismatch in layer {layer_idx}: {attn_weights.shape} vs {expected_shape}"
+        error_str = f"Attention weights shape mismatch in layer {layer_idx}:"
+        error_str += f" expected {expected_shape}, got {attn_weights.shape}"
+        assert attn_weights.shape == expected_shape, error_str
 
 
 def test_transformer_permutation_equivariance(
-    transformer_params: TransformerParameters,
+    model_params,
     cell_state_encoder: CellStateEncoder,
     scrna_transformer: ScRNATransformer,
     gene_token_data: tuple,
@@ -155,7 +88,6 @@ def test_transformer_permutation_equivariance(
 
     # Convert boolean mask to float mask
     attention_mask = gene_token_data[2]
-    float_attention_mask = attention_mask.float()
 
     # Test permutation equivariance for one sample in the batch
     batch_idx = 0
@@ -203,16 +135,16 @@ def test_transformer_permutation_equivariance(
         )
 
     # Check attention patterns for each layer
-    for layer_idx in range(transformer_params.num_layers):
+    for layer_idx in range(model_params.num_layers):
         orig_attn = original_attention[layer_idx][0]  # First batch item
         perm_attn = permuted_attention[layer_idx][0]  # First batch item
 
         # Check CLS token attention if used
-        if transformer_params.use_cls_token:
+        if model_params.use_cls_token:
             check_cls_token_attention(orig_attn, perm_attn, inverse_perm, seq_len, layer_idx)
 
         # Check sequence-to-sequence attention for each head
-        for head_idx in range(transformer_params.num_heads):
+        for head_idx in range(model_params.num_heads):
             check_sequence_attention(
                 orig_attn,
                 perm_attn,
@@ -220,7 +152,7 @@ def test_transformer_permutation_equivariance(
                 seq_len,
                 layer_idx,
                 head_idx,
-                transformer_params.use_cls_token,
+                model_params.use_cls_token,
             )
 
     # Finally, check that the prediction remains unchanged
