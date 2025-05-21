@@ -13,7 +13,7 @@ class CellStateEncoder(nn.Module):
 
     def __init__(
         self,
-        num_genes: int,  # Total vocabulary of genes (e.g., 15,000)
+        num_genes_total: int,  # Total vocabulary of genes (e.g., 15,000)
         gene_embedding_dim: int,  # Dimension for gene embeddings
         num_cell_types: int,  # Number of cell types
         use_film: bool = True,  # Whether to use FiLM conditioning
@@ -22,7 +22,7 @@ class CellStateEncoder(nn.Module):
         super(CellStateEncoder, self).__init__()
 
         # Gene identity embedding (like word embeddings in NLP)
-        self.gene_id_embedding = nn.Embedding(num_genes, gene_embedding_dim)
+        self.gene_id_embedding = nn.Embedding(num_genes_total, gene_embedding_dim)
 
         # Gene count embedding
         self.count_embedding = nn.Linear(1, gene_embedding_dim)
