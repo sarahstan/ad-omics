@@ -96,10 +96,10 @@ class ADOmicsDataset(Dataset):
         cell_type[self.metadata.cell_type.iloc[index]] = 1.0
         return cell_type
 
-    def _get_cell_type_token(self, index: int) -> int:
+    def _get_cell_type_token(self, index: int) -> torch.Tensor:
         # Convert the cell type index to a one-hot encoded vector
         cell_type = self.metadata.cell_type.iloc[index]
-        return cell_type
+        return torch.tensor(cell_type, dtype=torch.long)
 
     def __getitem__(
         self,
