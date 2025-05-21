@@ -7,7 +7,7 @@ from .scrna_transformer import ScRNATransformer
 class ADPredictionModel(nn.Module):
     """
     Complete model for AD prediction from scRNA-seq data.
-    Combines CellStateEncoder and ScRNATransformer.
+    Combines CellStateEncoder and ScRNATransformer with full permutation equivariance.
     """
 
     def __init__(
@@ -19,14 +19,13 @@ class ADPredictionModel(nn.Module):
         num_layers: int,
         max_seq_len: int,
         dropout: float = 0.1,
-        use_cls_token: bool = True,
     ):
         super(ADPredictionModel, self).__init__()
 
         # Cell state encoder (passed in as initialized module)
         self.cell_state_encoder = cell_state_encoder
 
-        # Transformer
+        # Transformer with permutation equivariance
         self.transformer = ScRNATransformer(
             embed_dim=embed_dim,
             num_heads=num_heads,
@@ -34,7 +33,6 @@ class ADPredictionModel(nn.Module):
             num_layers=num_layers,
             max_seq_len=max_seq_len,
             dropout=dropout,
-            use_cls_token=use_cls_token,
         )
 
     def forward(
@@ -46,7 +44,7 @@ class ADPredictionModel(nn.Module):
         gene_regulatory_matrix: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """
-        Forward pass of the complete AD prediction model.
+        Forward pass of the complete AD prediction model with permutation invariance.
 
         Args:
             gene_indices: Tensor of shape [batch_size, max_seq_len]

@@ -21,7 +21,6 @@ class ModelParameters:
         num_layers: int = 2,  # Number of transformer layers
         num_cell_types: int = 12,
         use_film: bool = True,
-        use_cls_token: bool = True,
         dropout: float = 0.1,
     ) -> None:
         """Initialize the common parameters for model tests."""
