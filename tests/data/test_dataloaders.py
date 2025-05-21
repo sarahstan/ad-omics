@@ -109,18 +109,13 @@ def test_dataloader_shuffling_token(
 ) -> None:
     # Extract two batches from each dataloader
 
-    # Shuffled  dataloader
+    # Shuffled dataloader
     batch_shuffled = []
     for e, b in enumerate(dataloader_shuffled_token):
         if e < 2:
             batch_shuffled.append(b)
         else:
             break
-    breakpoint()
-    gene_ids_shuffled = torch.concat([b[0] for b in batch_shuffled])
-    gene_counts_shuffled = torch.concat([b[1] for b in batch_shuffled])
-    cell_types_shuffled = torch.concat([b[2] for b in batch_shuffled])
-    labels_shuffled = torch.concat([b[3] for b in batch_shuffled])
 
     # Unshuffled dataloader
     batch_unshuffled = []
@@ -130,19 +125,47 @@ def test_dataloader_shuffling_token(
         else:
             break
 
-    gene_ids_unshuffled = torch.concat([b[0] for b in batch_unshuffled])
-    gene_counts_unshuffled = torch.concat([b[1] for b in batch_unshuffled])
-    cell_types_unshuffled = torch.concat([b[2] for b in batch_unshuffled])
-    labels_unshuffled = torch.concat([b[3] for b in batch_unshuffled])
+    # For these tensors, we can directly compare as they have fixed dimensions:
+    # - Cell types: [batch_size]
+    # - Labels: [batch_size]
+    shuffled_cell_types = torch.cat([b[2] for b in batch_shuffled])
+    unshuffled_cell_types = torch.cat([b[2] for b in batch_unshuffled])
 
-    error_str = "gene_ids_shuffled and gene_ids_unshuffled should not be identical."
-    assert not torch.equal(gene_ids_shuffled, gene_ids_unshuffled), error_str
+    shuffled_labels = torch.cat([b[3] for b in batch_shuffled])
+    unshuffled_labels = torch.cat([b[3] for b in batch_unshuffled])
 
-    error_str = "gene_counts_shuffled and gene_counts_unshuffled should not be identical."
-    assert not torch.equal(gene_counts_shuffled, gene_counts_unshuffled), error_str
+    # For gene data, we'll use a simpler comparison approach:
+    # Compare the overall statistics/fingerprint of the data
 
+    # Check if cell types and labels differ (these are consistent shapes)
     error_str = "cell_types_shuffled and cell_types_unshuffled should not be identical."
-    assert not torch.equal(cell_types_shuffled, cell_types_unshuffled), error_str
+    assert not torch.equal(shuffled_cell_types, unshuffled_cell_types), error_str
 
     error_str = "labels_shuffled and labels_unshuffled should not be identical."
-    assert not torch.equal(labels_shuffled, labels_unshuffled), error_str
+    assert not torch.equal(shuffled_labels, unshuffled_labels), error_str
+
+    # For gene data, compute fingerprints that aren't affected by padding
+    def get_batch_fingerprints(batches):
+        """Get statistics fingerprints for gene data"""
+        # Sum all gene IDs and counts in each batch
+        id_sums = []
+        count_sums = []
+
+        for batch in batches:
+            gene_ids, gene_counts, _, _, attention_mask = batch
+            # Only sum non-padded elements using the attention mask
+            id_sums.append((gene_ids * attention_mask.long()).sum().item())
+            count_sums.append((gene_counts * attention_mask.float()).sum().item())
+
+        return id_sums, count_sums
+
+    # Get fingerprints
+    shuffled_id_sums, shuffled_count_sums = get_batch_fingerprints(batch_shuffled)
+    unshuffled_id_sums, unshuffled_count_sums = get_batch_fingerprints(batch_unshuffled)
+
+    # Compare fingerprints
+    error_str = "gene_ids_shuffled and gene_ids_unshuffled should have different statistics."
+    assert shuffled_id_sums != unshuffled_id_sums, error_str
+
+    error_str = "gene_counts_shuffled and gene_counts_unshuffled should have different statistics."
+    assert shuffled_count_sums != unshuffled_count_sums, error_str
