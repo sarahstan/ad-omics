@@ -39,47 +39,23 @@ def create_permuted_data(original_data, perm, seq_len, batch_idx=0):
     return original_indices, original_values, original_mask, permuted_indices, permuted_values
 
 
-def get_expected_attention_shape(batch_size, num_heads, max_seq_len, use_cls_token):
+def get_expected_attention_shape(batch_size, num_heads, max_seq_len):
     """Helper function to determine the expected attention shape."""
-    if use_cls_token:
-        return (batch_size, num_heads, max_seq_len + 1, max_seq_len + 1)
-    else:
-        return (batch_size, num_heads, max_seq_len, max_seq_len)
+    return (batch_size, num_heads, max_seq_len, max_seq_len)
 
 
-def check_cls_token_attention(orig_attn, perm_attn, inverse_perm, seq_len, layer_idx):
-    """Check if CLS token attention is permutation equivariant."""
-    # For CLS token attention to sequence tokens
-    orig_cls_seq = orig_attn[:, 0, 1 : seq_len + 1]
-    perm_cls_seq = perm_attn[:, 0, 1 : seq_len + 1]
-
-    # Apply inverse permutation to permuted attention
-    reordered_perm_cls_seq = perm_cls_seq[:, inverse_perm]
-
-    # Check if the attention patterns from CLS token match
-    assert torch.allclose(
-        orig_cls_seq, reordered_perm_cls_seq, atol=1e-5
-    ), f"CLS token attention in layer {layer_idx} is not permutation equivariant"
-
-
-def check_sequence_attention(
-    orig_attn, perm_attn, inverse_perm, seq_len, layer_idx, head_idx, use_cls_token
-):
+def check_sequence_attention(orig_attn, perm_attn, inverse_perm, seq_len, layer_idx, head_idx):
     """Check if sequence-to-sequence attention is permutation equivariant."""
-    if use_cls_token:
-        # With CLS token, extract sequence-to-sequence attention (excluding CLS token)
-        orig_seq_seq = orig_attn[head_idx, 1 : seq_len + 1, 1 : seq_len + 1]
-        perm_seq_seq = perm_attn[head_idx, 1 : seq_len + 1, 1 : seq_len + 1]
-    else:
-        # Without CLS token, check sequence-to-sequence attention directly
-        orig_seq_seq = orig_attn[head_idx, :seq_len, :seq_len]
-        perm_seq_seq = perm_attn[head_idx, :seq_len, :seq_len]
+    # Check sequence-to-sequence attention directly
+    orig_seq_seq = orig_attn[head_idx, :seq_len, :seq_len]
+    perm_seq_seq = perm_attn[head_idx, :seq_len, :seq_len]
 
     # Apply inverse permutation to rows and columns of permuted attention
     reordered_perm_seq_seq = perm_seq_seq[inverse_perm][:, inverse_perm]
 
     # Check if the attention patterns match
-    error_str = f"Sequence-to-sequence attention in layer {layer_idx}, head {head_idx} is not permutation equivariant"
+    error_str = f"Sequence-to-sequence attention in layer {layer_idx}, "
+    error_str += f"head {head_idx} is not permutation equivariant. "
     assert torch.allclose(orig_seq_seq, reordered_perm_seq_seq, atol=1e-5), error_str
 
 

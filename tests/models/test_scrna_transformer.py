@@ -7,7 +7,6 @@ from tests.utils import (
     create_inverse_permutation,
     create_permuted_data,
     get_expected_attention_shape,
-    check_cls_token_attention,
     check_sequence_attention,
 )
 
@@ -22,7 +21,6 @@ def scrna_transformer(model_params) -> ScRNATransformer:
         num_layers=model_params.num_layers,
         max_seq_len=model_params.max_seq_len,
         dropout=model_params.dropout,
-        use_cls_token=model_params.use_cls_token,
     )
 
 
@@ -58,7 +56,6 @@ def test_forward(
         model_params.batch_size,
         model_params.num_heads,
         model_params.max_seq_len,
-        model_params.use_cls_token,
     )
 
     # Check shape of each attention weight tensor
@@ -139,10 +136,6 @@ def test_transformer_permutation_equivariance(
         orig_attn = original_attention[layer_idx][0]  # First batch item
         perm_attn = permuted_attention[layer_idx][0]  # First batch item
 
-        # Check CLS token attention if used
-        if model_params.use_cls_token:
-            check_cls_token_attention(orig_attn, perm_attn, inverse_perm, seq_len, layer_idx)
-
         # Check sequence-to-sequence attention for each head
         for head_idx in range(model_params.num_heads):
             check_sequence_attention(
@@ -152,7 +145,6 @@ def test_transformer_permutation_equivariance(
                 seq_len,
                 layer_idx,
                 head_idx,
-                model_params.use_cls_token,
             )
 
     # Finally, check that the prediction remains unchanged

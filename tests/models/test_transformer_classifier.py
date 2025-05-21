@@ -23,7 +23,6 @@ def ad_prediction_model(
         num_layers=model_params.num_layers,
         max_seq_len=model_params.max_seq_len,
         dropout=model_params.dropout,
-        use_cls_token=model_params.use_cls_token,
     )
 
 
@@ -55,8 +54,6 @@ def test_forward(
     # Check that each attention weight is properly shaped
     for layer_idx, attn_weights in enumerate(attention_weights):
         expected_seq_len = model_params.max_seq_len
-        if model_params.use_cls_token:
-            expected_seq_len += 1
 
         expected_shape = (
             model_params.batch_size,
