@@ -1,6 +1,7 @@
 import pytest
 import torch
-from data import scDATA, ADOmicsDataset
+from data import scDATA
+from data.dataset import ADOmicsDataset
 
 
 @pytest.fixture
