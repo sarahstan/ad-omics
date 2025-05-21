@@ -13,16 +13,15 @@ def ad_prediction_model(
 ) -> ADPredictionModel:
     """Fixture to create an ADPredictionModel instance for testing."""
     return ADPredictionModel(
-        # Model parameters
-        batch_size=model_params.batch_size,
-        # Cell State Encoder parameters
-        num_genes=model_params.num_genes,
+        # Shared
+        gene_embedding_dim=model_params.embed_dim,
+        # Cell State Encoder
+        num_genes_total=model_params.num_genes_total,
         num_cell_types=model_params.num_cell_types,
-        embed_dim=model_params.embed_dim,
+        num_genes_per_cell_max=model_params.num_genes_per_cell_max,
         use_film=model_params.use_film,
-        max_number_genes=model_params.max_number_genes,
         cell_state_encoder_dropout=model_params.cell_state_encoder_dropout,
-        # Transformer parameters
+        # Transformer
         num_heads=model_params.num_heads,
         ff_dim=model_params.ff_dim,
         num_layers=model_params.num_layers,
@@ -57,7 +56,7 @@ def test_forward(
 
     # Check that each attention weight is properly shaped
     for layer_idx, attn_weights in enumerate(attention_weights):
-        expected_seq_len = model_params.max_seq_len
+        expected_seq_len = model_params.num_genes_per_cell_max
 
         expected_shape = (
             model_params.batch_size,

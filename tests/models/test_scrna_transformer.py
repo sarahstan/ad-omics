@@ -19,8 +19,8 @@ def scrna_transformer(model_params) -> ScRNATransformer:
         num_heads=model_params.num_heads,
         ff_dim=model_params.ff_dim,
         num_layers=model_params.num_layers,
-        max_seq_len=model_params.max_seq_len,
-        dropout=model_params.dropout,
+        max_seq_len=model_params.num_genes_per_cell_max,
+        dropout=model_params.transformer_dropout,
     )
 
 
@@ -55,7 +55,7 @@ def test_forward(
     expected_shape = get_expected_attention_shape(
         model_params.batch_size,
         model_params.num_heads,
-        model_params.max_seq_len,
+        model_params.num_genes_per_cell_max,
     )
 
     # Check shape of each attention weight tensor

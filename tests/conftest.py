@@ -12,12 +12,13 @@ class ModelParameters:
 
     def __init__(
         self,
+        # Shared
         batch_size: int = 8,
+        embed_dim: int = 16,  # Embedding dimension
         # Cell State Encoder parameters
         num_genes_total: int = 15000,  # Total vocabulary size
         num_cell_types: int = 12,  # Number of cell types
         num_genes_per_cell_max: int = 500,  # Maximum number of genes
-        embed_dim: int = 16,  # Embedding dimension
         use_film: bool = True,  # Use FiLM for cell type conditioning
         cell_state_encoder_dropout: float = 0.1,  # Dropout rate for cell state encoder
         # Transformer parameters
