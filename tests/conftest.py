@@ -3,7 +3,7 @@ import pytest
 from data import scDATA
 import torch
 from dataclasses import dataclass
-from models.cell_state_encoder import CellStateEncoder
+from models.torch.cell_state_encoder import CellStateEncoder
 
 
 @dataclass

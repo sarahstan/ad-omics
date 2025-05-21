@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from typing import Optional, Tuple, List
+from .cell_state_encoder import CellStateEncoder
 from .scrna_transformer import ScRNATransformer
 
 
@@ -12,7 +13,6 @@ class ADPredictionModel(nn.Module):
 
     def __init__(
         self,
-        cell_state_encoder,
         embed_dim: int,
         num_heads: int,
         ff_dim: int,
@@ -23,7 +23,13 @@ class ADPredictionModel(nn.Module):
         super(ADPredictionModel, self).__init__()
 
         # Cell state encoder (passed in as initialized module)
-        self.cell_state_encoder = cell_state_encoder
+        self.cell_state_encoder = CellStateEncoder(
+            num_genes=embed_dim,
+            gene_embedding_dim=embed_dim,
+            num_cell_types=num_heads,
+            use_film=ff_dim,
+            dropout=dropout,
+        )
 
         # Transformer with permutation equivariance
         self.transformer = ScRNATransformer(

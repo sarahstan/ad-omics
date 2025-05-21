@@ -1,6 +1,6 @@
 import pytest
 import torch
-from models.cell_state_encoder import CellStateEncoder
+from models.torch.cell_state_encoder import CellStateEncoder
 from models.torch.scrna_transformer import ScRNATransformer
 from tests.utils import (
     create_permutation,

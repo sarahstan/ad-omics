@@ -1,7 +1,5 @@
 import pytest
 import torch
-from models.cell_state_encoder import CellStateEncoder
-from models.torch.scrna_transformer import ScRNATransformer
 from models.torch.transformer_classifier import ADPredictionModel
 from tests.utils import (
     create_permutation,
@@ -11,12 +9,10 @@ from tests.utils import (
 
 @pytest.fixture
 def ad_prediction_model(
-    cell_state_encoder: CellStateEncoder,
     model_params,
 ) -> ADPredictionModel:
     """Fixture to create an ADPredictionModel instance for testing."""
     return ADPredictionModel(
-        cell_state_encoder=cell_state_encoder,
         embed_dim=model_params.embed_dim,
         num_heads=model_params.num_heads,
         ff_dim=model_params.ff_dim,
