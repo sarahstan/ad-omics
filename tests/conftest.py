@@ -13,15 +13,18 @@ class ModelParameters:
     def __init__(
         self,
         batch_size: int = 8,
-        num_genes: int = 15000,  # Total vocabulary size
-        max_seq_len: int = 500,  # Maximum sequence length (expressed genes)
+        # Cell State Encoder parameters
+        num_genes_total: int = 15000,  # Total vocabulary size
+        num_cell_types: int = 12,  # Number of cell types
+        num_genes_per_cell_max: int = 500,  # Maximum number of genes
         embed_dim: int = 16,  # Embedding dimension
+        use_film: bool = True,  # Use FiLM for cell type conditioning
+        cell_state_encoder_dropout: float = 0.1,  # Dropout rate for cell state encoder
+        # Transformer parameters
         num_heads: int = 8,  # Number of attention heads
         ff_dim: int = 64,  # Feed forward dimension
         num_layers: int = 2,  # Number of transformer layers
-        num_cell_types: int = 12,
-        use_film: bool = True,
-        dropout: float = 0.1,
+        transformer_dropout: float = 0.1,  # Dropout rate for transformer
     ) -> None:
         """Initialize the common parameters for model tests."""
         # Set attributes from the init parameters
@@ -76,8 +79,8 @@ def gene_token_data(model_params):
 
     return generate_gene_data(
         batch_size=model_params.batch_size,
-        num_genes=model_params.num_genes,
-        max_seq_len=model_params.max_seq_len,
+        num_genes_total=model_params.num_genes_total,
+        num_genes_per_cell_max=model_params.num_genes_per_cell_max,
     )
 
 
@@ -94,9 +97,9 @@ def cell_type(model_params):
 def cell_state_encoder(model_params) -> CellStateEncoder:
     """Fixture to create a CellStateEncoder instance for testing."""
     return CellStateEncoder(
-        num_genes=model_params.num_genes,
+        num_genes_total=model_params.num_genes_total,
         gene_embedding_dim=model_params.embed_dim,
         num_cell_types=model_params.num_cell_types,
         use_film=model_params.use_film,
-        dropout=model_params.dropout,
+        dropout=model_params.cell_state_encoder_dropout,
     )

@@ -17,7 +17,7 @@ def test_forward(
 
     assert output.shape == (
         model_params.batch_size,
-        model_params.max_seq_len,
+        model_params.num_genes_per_cell_max,
         model_params.embed_dim,
     ), "Output shape mismatch"
     assert torch.all(torch.isfinite(output)), "Output contains non-finite values"

@@ -13,12 +13,19 @@ class ADPredictionModel(nn.Module):
 
     def __init__(
         self,
+        # Cell State Encoder parameters
+        num_genes: int,
+        gene_embedding_dim: int,
+        num_cell_types: int,
+        use_film: bool,
+        cell_state_encoder_dropout: float,
+        # Transformer parameters
         embed_dim: int,
         num_heads: int,
         ff_dim: int,
         num_layers: int,
         max_seq_len: int,
-        dropout: float = 0.1,
+        transformer_dropout: float,
     ):
         super(ADPredictionModel, self).__init__()
 
@@ -28,7 +35,7 @@ class ADPredictionModel(nn.Module):
             gene_embedding_dim=embed_dim,
             num_cell_types=num_heads,
             use_film=ff_dim,
-            dropout=dropout,
+            dropout=cell_state_encoder_dropout,
         )
 
         # Transformer with permutation equivariance
@@ -38,7 +45,7 @@ class ADPredictionModel(nn.Module):
             ff_dim=ff_dim,
             num_layers=num_layers,
             max_seq_len=max_seq_len,
-            dropout=dropout,
+            dropout=transformer_dropout,
         )
 
     def forward(

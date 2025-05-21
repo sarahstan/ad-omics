@@ -13,12 +13,20 @@ def ad_prediction_model(
 ) -> ADPredictionModel:
     """Fixture to create an ADPredictionModel instance for testing."""
     return ADPredictionModel(
+        # Model parameters
+        batch_size=model_params.batch_size,
+        # Cell State Encoder parameters
+        num_genes=model_params.num_genes,
+        num_cell_types=model_params.num_cell_types,
         embed_dim=model_params.embed_dim,
+        use_film=model_params.use_film,
+        max_number_genes=model_params.max_number_genes,
+        cell_state_encoder_dropout=model_params.cell_state_encoder_dropout,
+        # Transformer parameters
         num_heads=model_params.num_heads,
         ff_dim=model_params.ff_dim,
         num_layers=model_params.num_layers,
-        max_seq_len=model_params.max_seq_len,
-        dropout=model_params.dropout,
+        transformer_dropout=model_params.transformer_dropout,
     )
 
 
