@@ -1,6 +1,7 @@
 import pytest
 import torch
-from data import scDATA, ADOmicsDataset
+from data import scDATA
+from data.dataset import ADOmicsDataset
 
 
 @pytest.fixture
@@ -23,6 +24,12 @@ def dataset_test(scdata: scDATA) -> ADOmicsDataset:
 @pytest.fixture
 def dataset_val(scdata: scDATA) -> ADOmicsDataset:
     dataset = ADOmicsDataset(scdata, subset="val")
+    return dataset
+
+
+@pytest.fixture
+def dataset_train_tokens(scdata: scDATA) -> ADOmicsDataset:
+    dataset = ADOmicsDataset(scdata, subset="train", representation="tokens")
     return dataset
 
 
@@ -82,20 +89,23 @@ def test_dataset_get(
     dataset_val: ADOmicsDataset,
 ) -> None:
     # Test the __getitem__ method
-    data, cell_type, label = dataset_train[0]
-    data_shape = data.shape
+    train_example = dataset_train[0]
+    gene_vector = train_example.gene_vector
+    cell_type = train_example.cell_type
+    label = train_example.label
+    data_shape = gene_vector.shape
     cell_type_shape = cell_type.shape
     label_shape = label.shape
 
-    data, cell_type, label = dataset_test[0]
-    assert data.shape == data_shape, "Data shape is incorrect"
-    assert cell_type.shape == cell_type_shape, "Cell type shape is incorrect"
-    assert label.shape == label_shape, "Label shape is incorrect"
+    test_example = dataset_test[0]
+    assert test_example.gene_vector.shape == data_shape, "Data shape is incorrect"
+    assert test_example.cell_type.shape == cell_type_shape, "Cell type shape is incorrect"
+    assert test_example.label.shape == label_shape, "Label shape is incorrect"
 
-    data, cell_type, label = dataset_val[0]
-    assert data.shape == data_shape, "Data shape is incorrect"
-    assert cell_type.shape == cell_type_shape, "Cell type shape is incorrect"
-    assert label.shape == label_shape, "Label shape is incorrect"
+    val_example = dataset_val[0]
+    assert val_example.gene_vector.shape == data_shape, "Data shape is incorrect"
+    assert val_example.cell_type.shape == cell_type_shape, "Cell type shape is incorrect"
+    assert val_example.label.shape == label_shape, "Label shape is incorrect"
 
 
 def test_cell_type_representation(
@@ -106,7 +116,8 @@ def test_cell_type_representation(
     # Test the cell type representation
 
     for dataset in [dataset_train, dataset_test, dataset_val]:
-        cell_type_vec = dataset[0][1]
+        example = dataset[0]
+        cell_type_vec = example.cell_type
         cell_type_int = torch.argmax(cell_type_vec).item()
 
         error_str = "There should be only one non-zero cell type in the example."
@@ -114,3 +125,17 @@ def test_cell_type_representation(
 
         error_str = "The cell type integer representation is incorrect."
         assert cell_type_int in range(len(dataset.scdata.cell_types)), error_str
+
+
+def test_token_representation(
+    dataset_train_tokens: ADOmicsDataset,
+) -> None:
+    # Randomly select 10 examples from the dataset
+    for i in range(10):
+        example = dataset_train_tokens[i]
+
+        error_str = "The gene indices and values should have the same length."
+        assert len(example.gene_indices) == len(example.gene_counts), error_str
+
+        error_str = "The cell type should be an integer in [0, number of cell type])."
+        assert example.cell_type in range(len(dataset_train_tokens.scdata.cell_types)), error_str
