@@ -1,6 +1,6 @@
 import pytest
 import torch
-from models.cell_state_encoder import CellStateEncoder
+from models.torch.cell_state_encoder import CellStateEncoder
 from tests.utils import create_permutation, create_inverse_permutation, create_permuted_data
 
 
