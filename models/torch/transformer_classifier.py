@@ -3,6 +3,10 @@ import torch.nn as nn
 from typing import Optional, Tuple, List
 from .cell_state_encoder import CellStateEncoder
 from .scrna_transformer import ScRNATransformer
+from configs import (
+    CellStateEncoderConfig,
+    ScRNATransformerConfig,
+)
 
 
 class ADPredictionModel(nn.Module):
@@ -13,40 +17,29 @@ class ADPredictionModel(nn.Module):
 
     def __init__(
         self,
-        # Shared
-        gene_embedding_dim: int,
-        # Cell State Encoder parameters
-        num_genes_total: int,
-        num_cell_types: int,
-        num_genes_per_cell_max: int,
-        use_film: bool,
-        cell_state_encoder_dropout: float,
-        # Transformer parameters
-        num_heads: int,
-        ff_dim: int,
-        num_layers: int,
-        transformer_dropout: float,
+        cell_state_encoder_config: CellStateEncoderConfig,
+        scrna_transformer_config: ScRNATransformerConfig,
     ):
         super(ADPredictionModel, self).__init__()
 
         # Cell state encoder (passed in as initialized module)
-        self.cell_state_encoder = CellStateEncoder(
-            num_genes_total=num_genes_total,
-            gene_embedding_dim=gene_embedding_dim,
-            num_cell_types=num_cell_types,
-            use_film=use_film,
-            dropout=cell_state_encoder_dropout,
-        )
+        self.cell_state_encoder = CellStateEncoder(cell_state_encoder_config)
 
         # Transformer with permutation equivariance
-        self.transformer = ScRNATransformer(
-            embed_dim=gene_embedding_dim,
-            num_heads=num_heads,
-            ff_dim=ff_dim,
-            num_layers=num_layers,
-            max_seq_len=num_genes_per_cell_max,
-            dropout=transformer_dropout,
+        self.transformer = ScRNATransformer(scrna_transformer_config)
+
+        self._validate_configs()
+
+    def _validate_configs(self):
+        """Verify the two configurations have the same internal dimension."""
+        error_str = (
+            "Expected cell state encoder and transformer to have the same internal dimension."
         )
+        error_str += f"\nEncoder: {self.cell_state_encoder.config.gene_embedding_dim}, "
+        error_str += f"\nTransformer: {self.transformer.config.embed_dim}"
+        cse_dim = self.cell_state_encoder.config.gene_embedding_dim
+        transformer_dim = self.transformer.config.embed_dim
+        assert cse_dim == transformer_dim, error_str
 
     def forward(
         self,
