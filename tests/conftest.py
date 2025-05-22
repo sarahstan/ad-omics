@@ -3,8 +3,7 @@ import pytest
 from data import scDATA
 import torch
 from dataclasses import dataclass
-from models.torch.cell_state_encoder import CellStateEncoder
-from configs import CellStateEncoderConfig
+from configs import CellStateEncoderConfig, ScRNATransformerConfig
 
 
 @pytest.fixture
@@ -67,13 +66,6 @@ def model_test_params(scdata) -> ModelTestParameters:
 
 
 @pytest.fixture
-def cell_state_encoder() -> CellStateEncoder:
-    """Fixture to create a CellStateEncoder instance for testing."""
-    config = CellStateEncoderConfig()
-    return CellStateEncoder(config)
-
-
-@pytest.fixture
 def scdata(test_split: float, val_split: float) -> scDATA:
     """Fixture for creating a SCData instance."""
     # Create a temporary directory for the test
@@ -113,3 +105,15 @@ def cell_type(model_test_params, batch_size):
     torch.manual_seed(42)  # For reproducibility
     cell_type = torch.randint(0, model_test_params.num_cell_types, (batch_size,))
     return cell_type
+
+
+@pytest.fixture
+def cell_state_encoder_config() -> CellStateEncoderConfig:
+    """Fixture to create a CellStateEncoderConfig instance for testing."""
+    return CellStateEncoderConfig()
+
+
+@pytest.fixture
+def scrna_transformer_config() -> ScRNATransformerConfig:
+    """Fixture to create a ScRNATransformerConfig instance for testing."""
+    return ScRNATransformerConfig()
