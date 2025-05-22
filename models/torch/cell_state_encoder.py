@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from typing import Optional
+from configs import CellStateEncoderConfig
 
 
 class CellStateEncoder(nn.Module):
@@ -13,39 +14,41 @@ class CellStateEncoder(nn.Module):
 
     def __init__(
         self,
-        num_genes_total: int,  # Total vocabulary of genes (e.g., 15,000)
-        gene_embedding_dim: int,  # Dimension for gene embeddings
-        num_cell_types: int,  # Number of cell types
-        use_film: bool = True,  # Whether to use FiLM conditioning
-        dropout: float = 0.1,  # Dropout rate
+        config: CellStateEncoderConfig,
     ):
         super(CellStateEncoder, self).__init__()
 
+        self.config = config
+
         # Gene identity embedding (like word embeddings in NLP)
-        self.gene_id_embedding = nn.Embedding(num_genes_total, gene_embedding_dim)
+        self.gene_id_embedding = nn.Embedding(
+            self.config.num_genes_total, self.config.gene_embedding_dim
+        )
 
         # Gene count embedding
-        self.count_embedding = nn.Linear(1, gene_embedding_dim)
+        self.count_embedding = nn.Linear(1, self.config.gene_embedding_dim)
 
         # Cell type embedding
-        self.cell_type_embedding = nn.Embedding(num_cell_types, gene_embedding_dim)
+        self.cell_type_embedding = nn.Embedding(
+            self.config.num_cell_types, self.config.gene_embedding_dim
+        )
 
         # FiLM conditioning
-        self.use_film = use_film
-        if use_film:
+        self.use_film = self.config.use_film
+        if self.use_film:
             self.gamma_projection = nn.Sequential(
-                nn.Linear(gene_embedding_dim, gene_embedding_dim),
+                nn.Linear(self.config.gene_embedding_dim, self.config.gene_embedding_dim),
                 nn.ReLU(),
-                nn.Linear(gene_embedding_dim, gene_embedding_dim),
+                nn.Linear(self.config.gene_embedding_dim, self.config.gene_embedding_dim),
             )
 
             self.beta_projection = nn.Sequential(
-                nn.Linear(gene_embedding_dim, gene_embedding_dim),
+                nn.Linear(self.config.gene_embedding_dim, self.config.gene_embedding_dim),
                 nn.ReLU(),
-                nn.Linear(gene_embedding_dim, gene_embedding_dim),
+                nn.Linear(self.config.gene_embedding_dim, self.config.gene_embedding_dim),
             )
 
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(self.config.dropout)
 
         # Initialize weights
         self._init_weights()
@@ -59,8 +62,6 @@ class CellStateEncoder(nn.Module):
             nn.init.zeros_(self.count_embedding.bias)
 
         nn.init.normal_(self.cell_type_embedding.weight, mean=0.0, std=0.02)
-        # if self.cell_type_embedding.bias is not None:
-        #     nn.init.zeros_(self.cell_type_embedding.bias)
 
     def forward(
         self,
