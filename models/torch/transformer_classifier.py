@@ -9,6 +9,14 @@ from configs import (
 )
 
 
+class CellEncoderAndTransformerDimensionMismatchError(Exception):
+    """Custom exception for dimension mismatch between cell encoder and transformer."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+
 class ADPredictionModel(nn.Module):
     """
     Complete model for AD prediction from scRNA-seq data.
@@ -32,14 +40,12 @@ class ADPredictionModel(nn.Module):
 
     def _validate_configs(self):
         """Verify the two configurations have the same internal dimension."""
-        error_str = (
-            "Expected cell state encoder and transformer to have the same internal dimension."
-        )
-        error_str += f"\nEncoder: {self.cell_state_encoder.config.gene_embedding_dim}, "
-        error_str += f"\nTransformer: {self.transformer.config.embed_dim}"
         cse_dim = self.cell_state_encoder.config.gene_embedding_dim
         transformer_dim = self.transformer.config.embed_dim
-        assert cse_dim == transformer_dim, error_str
+        error_str = "Expected cell encoder and transformer to have the same internal dimension. "
+        error_str += f"Encoder gene_embedding_dim = {cse_dim}, "
+        error_str += f"Transformer embed_dim = {transformer_dim}"
+        raise CellEncoderAndTransformerDimensionMismatchError(error_str)
 
     def forward(
         self,
