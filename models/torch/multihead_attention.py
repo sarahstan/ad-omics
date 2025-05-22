@@ -59,10 +59,10 @@ class MultiHeadAttention(nn.Module):
             query: Tensor of shape [batch_size, seq_len_q, embed_dim]
             key: Tensor of shape [batch_size, seq_len_k, embed_dim]
             value: Tensor of shape [batch_size, seq_len_v, embed_dim]
-            attn_mask: Optional tensor of shape [batch_size, seq_len_q, seq_len_k]
-                      Binary mask where 1 allows attention and 0 blocks it
+            attn_mask: Optional tensor of shape [batch_size, seq_len] OR [batch_size, seq_len_q, seq_len_k]
+                    Binary mask where 1 allows attention and 0 blocks it
             gene_regulatory_matrix: Optional tensor of shape [seq_len_q, seq_len_k]
-                                   Matrix encoding gene-gene regulatory interactions
+                                Matrix encoding gene-gene regulatory interactions
 
         Returns:
             output: Tensor of shape [batch_size, seq_len_q, embed_dim]
@@ -100,12 +100,32 @@ class MultiHeadAttention(nn.Module):
 
         # Apply attention mask if provided
         if attn_mask is not None:
-            # Expand mask for broadcasting across heads
-            mask = attn_mask.unsqueeze(1)
+            if attn_mask.dim() == 2:
+                # attn_mask shape: [batch_size, seq_len] - padding mask
+                # Convert to [batch_size, seq_len, seq_len] for self-attention
+                batch_size_mask, seq_len = attn_mask.shape
+                mask = attn_mask.unsqueeze(1) * attn_mask.unsqueeze(
+                    2
+                )  # [batch_size, seq_len, seq_len]
+            elif attn_mask.dim() == 3:
+                # attn_mask shape: [batch_size, seq_len_q, seq_len_k] - full attention mask
+                mask = attn_mask
+            else:
+                raise ValueError(f"attn_mask should have 2 or 3 dimensions, got {attn_mask.dim()}")
+
+            # Expand mask for broadcasting across heads: [batch_size, 1, seq_len_q, seq_len_k]
+            mask = mask.unsqueeze(1)
             scores = scores.masked_fill(mask == 0, float("-inf"))
 
-        # Apply softmax and dropout
+        # Apply softmax and dropout with numerical stability
+        # Handle the case where all values in a row might be -inf
         attention_weights = F.softmax(scores, dim=-1)
+
+        # Replace NaN values with zeros (this can happen when all scores are -inf)
+        attention_weights = torch.where(
+            torch.isnan(attention_weights), torch.zeros_like(attention_weights), attention_weights
+        )
+
         attention_weights = self.dropout(attention_weights)
 
         # Apply attention to values

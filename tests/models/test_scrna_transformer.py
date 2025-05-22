@@ -2,6 +2,7 @@ import pytest
 import torch
 from models.torch.cell_state_encoder import CellStateEncoder
 from models.torch.scrna_transformer import ScRNATransformer
+from configs import ScRNATransformerConfig
 from tests.utils import (
     create_permutation,
     create_inverse_permutation,
@@ -12,24 +13,19 @@ from tests.utils import (
 
 
 @pytest.fixture
-def scrna_transformer(model_params) -> ScRNATransformer:
+def scrna_transformer() -> ScRNATransformer:
     """Fixture to create a ScRNATransformer instance for testing."""
-    return ScRNATransformer(
-        embed_dim=model_params.embed_dim,
-        num_heads=model_params.num_heads,
-        ff_dim=model_params.ff_dim,
-        num_layers=model_params.num_layers,
-        max_seq_len=model_params.num_genes_per_cell_max,
-        dropout=model_params.transformer_dropout,
-    )
+    config = ScRNATransformerConfig()
+    return ScRNATransformer(config)
 
 
 def test_forward(
-    model_params,
     cell_state_encoder: CellStateEncoder,
     scrna_transformer: ScRNATransformer,
     gene_token_data: tuple,
     cell_type: torch.Tensor,
+    batch_size: int,
+    num_genes_per_cell_max: int,
 ):
     """Test the forward method of ScRNATransformer."""
     gene_indices, gene_values, attention_mask = gene_token_data
@@ -44,18 +40,18 @@ def test_forward(
     logits, attention_weights = scrna_transformer(gene_embeddings, float_attention_mask)
 
     # Check logits shape
-    assert logits.shape == (model_params.batch_size,), "Logits shape mismatch"
+    assert logits.shape == (batch_size,), "Logits shape mismatch"
 
     # Check attention weights shape: should be a list of tensors, one per layer
     assert (
-        len(attention_weights) == model_params.num_layers
+        len(attention_weights) == scrna_transformer.config.num_layers
     ), "Incorrect number of attention weight layers"
 
     # Get expected attention shape
     expected_shape = get_expected_attention_shape(
-        model_params.batch_size,
-        model_params.num_heads,
-        model_params.num_genes_per_cell_max,
+        batch_size,
+        scrna_transformer.config.num_heads,
+        num_genes_per_cell_max,
     )
 
     # Check shape of each attention weight tensor
@@ -66,7 +62,6 @@ def test_forward(
 
 
 def test_transformer_permutation_equivariance(
-    model_params,
     cell_state_encoder: CellStateEncoder,
     scrna_transformer: ScRNATransformer,
     gene_token_data: tuple,
@@ -79,6 +74,7 @@ def test_transformer_permutation_equivariance(
     should maintain the same relative attention patterns (after accounting
     for the permutation).
     """
+
     # Set models to evaluation mode
     cell_state_encoder.eval()
     scrna_transformer.eval()
@@ -132,12 +128,12 @@ def test_transformer_permutation_equivariance(
         )
 
     # Check attention patterns for each layer
-    for layer_idx in range(model_params.num_layers):
+    for layer_idx in range(scrna_transformer.config.num_layers):
         orig_attn = original_attention[layer_idx][0]  # First batch item
         perm_attn = permuted_attention[layer_idx][0]  # First batch item
 
         # Check sequence-to-sequence attention for each head
-        for head_idx in range(model_params.num_heads):
+        for head_idx in range(scrna_transformer.config.num_heads):
             check_sequence_attention(
                 orig_attn,
                 perm_attn,
