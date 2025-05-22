@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from typing import Optional, Tuple, List
 from .transformer_encoder import TransformerEncoderLayer
+from configs import ScRNATransformerConfig
 
 
 class ScRNATransformer(nn.Module):
@@ -12,35 +13,34 @@ class ScRNATransformer(nn.Module):
 
     def __init__(
         self,
-        embed_dim: int,
-        num_heads: int,
-        ff_dim: int,
-        num_layers: int,
-        max_seq_len: int,
-        dropout: float = 0.1,
+        config: ScRNATransformerConfig,
     ):
         super(ScRNATransformer, self).__init__()
 
-        self.embed_dim = embed_dim
-        self.max_seq_len = max_seq_len
+        self.config = config
 
         # Transformer encoder layers
         self.layers = nn.ModuleList(
             [
-                TransformerEncoderLayer(embed_dim, num_heads, ff_dim, dropout)
-                for _ in range(num_layers)
+                TransformerEncoderLayer(
+                    self.config.embed_dim,
+                    self.config.num_heads,
+                    self.config.ff_dim,
+                    self.config.dropout,
+                )
+                for _ in range(self.config.num_layers)
             ]
         )
 
         # Layer norm for final output
-        self.norm = nn.LayerNorm(embed_dim)
+        self.norm = nn.LayerNorm(self.config.embed_dim)
 
         # Classification head
         self.classifier = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim),
+            nn.Linear(self.config.embed_dim, self.config.embed_dim),
             nn.Tanh(),
-            nn.Dropout(dropout),
-            nn.Linear(embed_dim, 1),
+            nn.Dropout(self.config.dropout),
+            nn.Linear(self.config.embed_dim, 1),
         )
 
     def forward(

@@ -29,7 +29,7 @@ def num_genes_total() -> int:
 
 @pytest.fixture
 def num_genes_per_cell_max() -> int:
-    return 500
+    return 512
 
 
 @dataclass
