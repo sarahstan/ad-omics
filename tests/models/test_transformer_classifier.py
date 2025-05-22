@@ -1,6 +1,7 @@
 import pytest
 import torch
 from models.torch.transformer_classifier import ADPredictionModel
+from configs import CellStateEncoderConfig, ScRNATransformerConfig
 from tests.utils import (
     create_permutation,
     create_permuted_data,
@@ -9,31 +10,24 @@ from tests.utils import (
 
 @pytest.fixture
 def ad_prediction_model(
-    model_params,
+    cell_state_encoder_config: CellStateEncoderConfig,
+    scrna_transformer_config: ScRNATransformerConfig,
 ) -> ADPredictionModel:
     """Fixture to create an ADPredictionModel instance for testing."""
     return ADPredictionModel(
-        # Shared
-        gene_embedding_dim=model_params.embed_dim,
-        # Cell State Encoder
-        num_genes_total=model_params.num_genes_total,
-        num_cell_types=model_params.num_cell_types,
-        num_genes_per_cell_max=model_params.num_genes_per_cell_max,
-        use_film=model_params.use_film,
-        cell_state_encoder_dropout=model_params.cell_state_encoder_dropout,
-        # Transformer
-        num_heads=model_params.num_heads,
-        ff_dim=model_params.ff_dim,
-        num_layers=model_params.num_layers,
-        transformer_dropout=model_params.transformer_dropout,
+        cell_state_encoder_config=cell_state_encoder_config,
+        scrna_transformer_config=scrna_transformer_config,
     )
 
 
 def test_forward(
-    model_params,
     ad_prediction_model: ADPredictionModel,
+    cell_state_encoder_config: CellStateEncoderConfig,
+    scrna_transformer_config: ScRNATransformerConfig,
     gene_token_data: tuple,
     cell_type: torch.Tensor,
+    batch_size: int,
+    num_genes_per_cell_max: int,
 ):
     """Test the forward method of ADPredictionModel."""
     gene_indices, gene_values, attention_mask = gene_token_data
@@ -47,20 +41,20 @@ def test_forward(
     )
 
     # Check logits shape
-    assert logits.shape == (model_params.batch_size,), "Logits shape mismatch"
+    assert logits.shape == (batch_size,), "Logits shape mismatch"
 
     # Check attention weights shape: should be a list of tensors, one per layer
     assert (
-        len(attention_weights) == model_params.num_layers
+        len(attention_weights) == scrna_transformer_config.num_layers
     ), "Incorrect number of attention weight layers"
 
     # Check that each attention weight is properly shaped
     for layer_idx, attn_weights in enumerate(attention_weights):
-        expected_seq_len = model_params.num_genes_per_cell_max
+        expected_seq_len = num_genes_per_cell_max
 
         expected_shape = (
-            model_params.batch_size,
-            model_params.num_heads,
+            batch_size,
+            scrna_transformer_config.num_heads,
             expected_seq_len,
             expected_seq_len,
         )
@@ -71,7 +65,6 @@ def test_forward(
 
 
 def test_permutation_invariance(
-    model_params,
     ad_prediction_model: ADPredictionModel,
     gene_token_data: tuple,
     cell_type: torch.Tensor,
