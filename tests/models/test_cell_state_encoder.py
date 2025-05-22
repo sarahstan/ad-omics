@@ -5,10 +5,11 @@ from tests.utils import create_permutation, create_inverse_permutation, create_p
 
 
 def test_forward(
-    model_params,
     cell_state_encoder: CellStateEncoder,
     gene_token_data: tuple,
     cell_type: torch.Tensor,
+    batch_size: int,
+    num_genes_per_cell_max: int,
 ):
     """Test the forward method of CellStateEncoder."""
     gene_indices, gene_values, attention_mask = gene_token_data
@@ -16,18 +17,19 @@ def test_forward(
     output = cell_state_encoder(gene_indices, gene_values, cell_type, attention_mask)
 
     assert output.shape == (
-        model_params.batch_size,
-        model_params.num_genes_per_cell_max,
-        model_params.embed_dim,
+        batch_size,
+        num_genes_per_cell_max,
+        cell_state_encoder.config.gene_embedding_dim,
     ), "Output shape mismatch"
     assert torch.all(torch.isfinite(output)), "Output contains non-finite values"
 
 
 def test_forward_permutation_equivariance(
-    model_params,
+    model_test_params,
     cell_state_encoder: CellStateEncoder,
     gene_token_data: tuple,
     cell_type: torch.Tensor,
+    batch_size: int,
 ):
     """Test the permutation equivariance of the forward method with token representation."""
     # Set a deterministic seed
@@ -39,7 +41,7 @@ def test_forward_permutation_equivariance(
     gene_indices, gene_values, attention_mask = gene_token_data
 
     # Test permutation equivariance for each sample in the batch
-    for batch_idx in range(model_params.batch_size):
+    for batch_idx in range(batch_size):
         # Get the non-padded length for this sample
         seq_len = attention_mask[batch_idx].sum().item()
 
