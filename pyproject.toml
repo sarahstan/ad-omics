@@ -40,4 +40,4 @@ dev = [
 
 
 [tool.setuptools]
-packages = ["data", "models", "trainer", "tools"]
+packages = ["data", "models", "trainer", "tools", "configs"]
