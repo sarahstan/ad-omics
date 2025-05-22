@@ -1,6 +1,9 @@
 import pytest
 import torch
-from models.torch.transformer_classifier import ADPredictionModel
+from models.torch.transformer_classifier import (
+    ADPredictionModel,
+    CellEncoderAndTransformerDimensionMismatchError,
+)
 from configs import CellStateEncoderConfig, ScRNATransformerConfig
 from tests.utils import (
     create_permutation,
@@ -122,3 +125,27 @@ def test_permutation_invariance(
     assert torch.allclose(
         original_logits, permuted_logits, atol=1e-5
     ), "ADPredictionModel is not permutation invariant - logits changed after gene permutation"
+
+
+import copy
+
+
+def test_validation_fails(
+    cell_state_encoder_config: CellStateEncoderConfig,
+    scrna_transformer_config: ScRNATransformerConfig,
+):
+    bad_encoder_config = copy.deepcopy(cell_state_encoder_config)
+    bad_transformer_config = copy.deepcopy(scrna_transformer_config)
+
+    bad_encoder_config.gene_embedding_dim = 5
+    bad_transformer_config.embed_dim = 4
+
+    with pytest.raises(CellEncoderAndTransformerDimensionMismatchError) as exc_info:
+        _ = ADPredictionModel(
+            cell_state_encoder_config=bad_encoder_config,
+            scrna_transformer_config=bad_transformer_config,
+        )
+    correct_str = "Expected cell encoder and transformer to have the same internal dimension"
+    condition = correct_str in str(exc_info.value)
+    error_str = "Error message does not contain expected string"
+    assert condition, error_str
