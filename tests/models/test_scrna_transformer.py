@@ -13,10 +13,9 @@ from tests.utils import (
 
 
 @pytest.fixture
-def scrna_transformer() -> ScRNATransformer:
+def scrna_transformer(scrna_transformer_config: ScRNATransformerConfig) -> ScRNATransformer:
     """Fixture to create a ScRNATransformer instance for testing."""
-    config = ScRNATransformerConfig()
-    return ScRNATransformer(config)
+    return ScRNATransformer(scrna_transformer_config)
 
 
 def test_forward(

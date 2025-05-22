@@ -1,7 +1,14 @@
 import pytest
 import torch
 from models.torch.cell_state_encoder import CellStateEncoder
+from configs import CellStateEncoderConfig
 from tests.utils import create_permutation, create_inverse_permutation, create_permuted_data
+
+
+@pytest.fixture
+def cell_state_encoder(cell_state_encoder_config: CellStateEncoderConfig) -> CellStateEncoder:
+    """Fixture to create a CellStateEncoder instance for testing."""
+    return CellStateEncoder(cell_state_encoder_config)
 
 
 def test_forward(
