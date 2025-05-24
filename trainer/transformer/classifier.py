@@ -2,31 +2,37 @@ from typing import Tuple
 import lightning as ltn
 import torch
 import numpy as np
-from models.torch.transformer_classifier import ADPredictionModel
+from models.transformer.classifier import ADPredictionModel
+from configs import (
+    CellStateEncoderConfig,
+    ScRNATransformerConfig,
+    TrainingParameterConfig,
+)
+
+# TrainingParameterConfig,
 
 
 class ADClassifierLightning(ltn.LightningModule):
     def __init__(
         self,
-        gene_input_dim: int,
-        cell_type_input_dim: int,
-        hidden_dims: list[int],
-        learning_rate: float = 0.001,
-        l1_lambda: float = 0.0001,
+        cell_state_encoder_config: CellStateEncoderConfig,
+        scrna_transformer_config: ScRNATransformerConfig,
+        training_parameter_config: TrainingParameterConfig,
     ):
         super().__init__()
+        self.training_parameter_config = training_parameter_config
+        self.cell_state_encoder_config = cell_state_encoder_config
+        self.scrna_transformer_config = scrna_transformer_config
+        self.learning_rate = self.training_parameter_config.learning_rate
+        self.l1_lambda = self.training_parameter_config.l1_lambda
+
         self.save_hyperparameters()
-        self.learning_rate = learning_rate
-        self.l1_lambda = l1_lambda
+
         self.loss_fn = torch.nn.BCELoss()
 
         self.model = ADPredictionModel(
-            embed_dim: hidden_dims
-            num_heads: int,
-            ff_dim: int,
-            num_layers: int,
-            max_seq_len: int,
-            dropout: float = 0.1
+            cell_state_encoder_config=cell_state_encoder_config,
+            scrna_transformer_config=scrna_transformer_config,
         )
 
     def get_l1_loss(self) -> torch.Tensor:
@@ -85,16 +91,24 @@ class ADClassifierLightning(ltn.LightningModule):
         return original_sparsity  # Return the original metric for consistency
 
     def training_step(self, batch, batch_idx):
-        gene_expr, cell_type, labels = batch
-        # Concatenate gene expression and cell type data
-        x = torch.cat((gene_expr, cell_type), dim=1)
-        return self._get_loss((x, labels), prefix="train")
+        gene_indices, gene_counts, cell_type, labels, attention_mask = batch
+        logits, _ = self.model(
+            gene_indices=gene_indices,
+            gene_values=gene_counts,
+            cell_type_indices=cell_type,
+            attention_mask=attention_mask,
+        )
+        return self._get_loss((logits, labels), prefix="train")
 
     def validation_step(self, batch, batch_idx):
-        gene_expr, cell_type, labels = batch
-        # Concatenate gene expression and cell type data
-        x = torch.cat((gene_expr, cell_type), dim=1)
-        return self._get_loss((x, labels), prefix="val")
+        gene_indices, gene_counts, cell_type, labels, attention_mask = batch
+        logits, _ = self.model(
+            gene_indices=gene_indices,
+            gene_values=gene_counts,
+            cell_type_indices=cell_type,
+            attention_mask=attention_mask,
+        )
+        return self._get_loss((logits, labels), prefix="val")
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
@@ -110,5 +124,8 @@ class ADClassifierLightning(ltn.LightningModule):
             if param.grad is not None:
                 logger.add_histogram(f"gradients/{name}", param.grad, self.current_epoch)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.model(x)
+    def forward(self, gene_indices, gene_values, cell_type_indices, attention_mask=None):
+        logits, attention_weights = self.model(
+            gene_indices, gene_values, cell_type_indices, attention_mask
+        )
+        return logits
