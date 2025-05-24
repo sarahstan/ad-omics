@@ -42,10 +42,14 @@ class ADPredictionModel(nn.Module):
         """Verify the two configurations have the same internal dimension."""
         cse_dim = self.cell_state_encoder.config.gene_embedding_dim
         transformer_dim = self.transformer.config.embed_dim
-        error_str = "Expected cell encoder and transformer to have the same internal dimension. "
-        error_str += f"Encoder gene_embedding_dim = {cse_dim}, "
-        error_str += f"Transformer embed_dim = {transformer_dim}"
-        raise CellEncoderAndTransformerDimensionMismatchError(error_str)
+
+        if cse_dim != transformer_dim:
+            error_str = (
+                "Expected cell encoder and transformer to have the same internal dimension. "
+            )
+            error_str += f"Encoder gene_embedding_dim = {cse_dim}, "
+            error_str += f"Transformer embed_dim = {transformer_dim}"
+            raise CellEncoderAndTransformerDimensionMismatchError(error_str)
 
     def forward(
         self,
