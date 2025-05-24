@@ -6,10 +6,8 @@ from models.transformer.classifier import ADPredictionModel
 from configs import (
     CellStateEncoderConfig,
     ScRNATransformerConfig,
-    TrainingParameterConfig,
+    TrainingConfig,
 )
-
-# TrainingParameterConfig,
 
 
 class ADClassifierLightning(ltn.LightningModule):
@@ -17,14 +15,14 @@ class ADClassifierLightning(ltn.LightningModule):
         self,
         cell_state_encoder_config: CellStateEncoderConfig,
         scrna_transformer_config: ScRNATransformerConfig,
-        training_parameter_config: TrainingParameterConfig,
+        training_config: TrainingConfig,
     ):
         super().__init__()
-        self.training_parameter_config = training_parameter_config
+        self.training_config = training_config
         self.cell_state_encoder_config = cell_state_encoder_config
         self.scrna_transformer_config = scrna_transformer_config
-        self.learning_rate = self.training_parameter_config.learning_rate
-        self.l1_lambda = self.training_parameter_config.l1_lambda
+        self.learning_rate = self.training_config.learning_rate
+        self.l1_lambda = self.training_config.l1_lambda
 
         self.save_hyperparameters()
 
