@@ -2,7 +2,7 @@ import os
 import torch
 import lightning as ltn
 from torch.utils.data import DataLoader, Subset
-from trainer.lightning.mlp_classifier import ADClassifierLightning
+from trainer.lightning.mlp.classifier import ADClassifierLightning
 from data import scDATA, ADOmicsDataset
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
