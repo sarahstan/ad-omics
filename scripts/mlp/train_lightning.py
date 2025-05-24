@@ -4,7 +4,7 @@ import os
 import argparse
 from lightning.pytorch.loggers import TensorBoardLogger
 from torch.utils.data import DataLoader
-from trainer.lightning.mlp_classifier import ADClassifierLightning
+from trainer.lightning.mlp.classifier import ADClassifierLightning
 from data import scDATA, ADOmicsDataset
 
 
