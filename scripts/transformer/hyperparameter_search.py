@@ -56,11 +56,16 @@ def train_model_with_hyperparams(config, data_path, num_epochs=5, subset_size=50
         collate_fn=TokenData.collate,
     )
 
+    # Get dataset parameters from the data
+    sample = training_dataset.dataset[training_dataset.indices[0]]
+    num_genes_total = scdata.adata.n_vars  # Total number of genes in the dataset
+    num_cell_types = len(scdata.cell_types)
+
     # Create configs from hyperparameters
     cell_state_config = CellStateEncoderConfig(
-        num_genes_total=15000,
+        num_genes_total=num_genes_total,
         gene_embedding_dim=config["embed_dim"],
-        num_cell_types=len(scdata.cell_types),
+        num_cell_types=num_cell_types,
         use_film=config.get("use_film", True),
         dropout=config.get("cell_dropout", 0.1),
     )
@@ -289,17 +294,29 @@ def run_hyperparameter_search(
 def _create_default_search_space():
     """Create a default search space for transformer hyperparameters"""
     return {
-        "batch_size": tune.choice([16, 32, 64]),
-        "learning_rate": tune.loguniform(1e-5, 1e-2),
-        "l1_lambda": tune.loguniform(1e-5, 1e-1),
-        "embed_dim": tune.choice([16, 32, 64]),
-        "num_heads": tune.choice([2, 4, 8]),
-        "ff_dim": tune.choice([64, 128, 256]),
-        "num_layers": tune.choice([2, 4, 6]),
+        "batch_size": tune.choice([2]),
+        "learning_rate": tune.choice([1e-5]),
+        "l1_lambda": tune.choice([1e-5]),
+        "embed_dim": tune.choice([4]),
+        "num_heads": tune.choice([2]),
+        "ff_dim": tune.choice([8]),
+        "num_layers": tune.choice([2]),
         "use_film": tune.choice([True]),
-        "cell_dropout": tune.uniform(0.0, 0.3),
-        "transformer_dropout": tune.uniform(0.0, 0.3),
+        "cell_dropout": tune.choice([0.3]),
+        "transformer_dropout": tune.choice([0.3]),
     }
+    # return {
+    #     "batch_size": tune.choice([16, 32, 64]),
+    #     "learning_rate": tune.loguniform(1e-5, 1e-2),
+    #     "l1_lambda": tune.loguniform(1e-5, 1e-1),
+    #     "embed_dim": tune.choice([16, 32, 64]),
+    #     "num_heads": tune.choice([2, 4, 8]),
+    #     "ff_dim": tune.choice([64, 128, 256]),
+    #     "num_layers": tune.choice([2, 4, 6]),
+    #     "use_film": tune.choice([True]),
+    #     "cell_dropout": tune.uniform(0.0, 0.3),
+    #     "transformer_dropout": tune.uniform(0.0, 0.3),
+    # }
 
 
 if __name__ == "__main__":

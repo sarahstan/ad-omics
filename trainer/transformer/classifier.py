@@ -26,7 +26,7 @@ class ADClassifierLightning(ltn.LightningModule):
 
         self.save_hyperparameters()
 
-        self.loss_fn = torch.nn.BCELoss()
+        self.loss_fn = torch.nn.BCEWithLogitsLoss()  # Changed to use logits version
 
         self.model = ADPredictionModel(
             cell_state_encoder_config=cell_state_encoder_config,
@@ -42,14 +42,12 @@ class ADClassifierLightning(ltn.LightningModule):
 
     def _get_loss(
         self,
-        batch: Tuple[torch.Tensor, torch.Tensor],
+        logits: torch.Tensor,
+        labels: torch.Tensor,
         prefix: str = "",
         write_to_log: bool = True,
     ):
-        x, y = batch
-        outputs = self(x).reshape(-1)
-
-        bce_loss = self.loss_fn(outputs, y)
+        bce_loss = self.loss_fn(logits, labels)
         l1_loss = self.get_l1_loss()
         total_loss = bce_loss + l1_loss
 
@@ -96,7 +94,7 @@ class ADClassifierLightning(ltn.LightningModule):
             cell_type_indices=cell_type,
             attention_mask=attention_mask,
         )
-        return self._get_loss((logits, labels), prefix="train")
+        return self._get_loss(logits, labels, prefix="train")
 
     def validation_step(self, batch, batch_idx):
         gene_indices, gene_counts, cell_type, labels, attention_mask = batch
@@ -106,7 +104,7 @@ class ADClassifierLightning(ltn.LightningModule):
             cell_type_indices=cell_type,
             attention_mask=attention_mask,
         )
-        return self._get_loss((logits, labels), prefix="val")
+        return self._get_loss(logits, labels, prefix="val")
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
