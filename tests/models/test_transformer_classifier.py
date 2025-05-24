@@ -1,6 +1,6 @@
 import pytest
 import torch
-from models.torch.transformer_classifier import (
+from models.transformer.classifier import (
     ADPredictionModel,
     CellEncoderAndTransformerDimensionMismatchError,
 )
@@ -130,7 +130,7 @@ def test_permutation_invariance(
 import copy
 
 
-def test_validation_fails(
+def test_validation_fails_when_embed_dims_mismatch(
     cell_state_encoder_config: CellStateEncoderConfig,
     scrna_transformer_config: ScRNATransformerConfig,
 ):
@@ -149,3 +149,20 @@ def test_validation_fails(
     condition = correct_str in str(exc_info.value)
     error_str = "Error message does not contain expected string"
     assert condition, error_str
+
+
+def test_validation_passes_when_embed_dims_match(
+    cell_state_encoder_config: CellStateEncoderConfig,
+    scrna_transformer_config: ScRNATransformerConfig,
+):
+    """Test that matching dimensions don't raise an error"""
+    try:
+        _ = ADPredictionModel(
+            cell_state_encoder_config=cell_state_encoder_config,
+            scrna_transformer_config=scrna_transformer_config,
+        )
+        # If we get here, the test passes
+    except CellEncoderAndTransformerDimensionMismatchError as e:
+        pytest.fail(f"Expected no exception for matching dimensions, but got: {e}")
+    except Exception as e:
+        pytest.fail(f"Unexpected exception type: {type(e).__name__}: {e}")
