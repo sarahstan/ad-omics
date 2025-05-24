@@ -16,7 +16,7 @@ from ray.air.integrations.mlflow import MLflowLoggerCallback
 from trainer.transformer.classifier import ADClassifierLightning
 from data import scDATA, TokenData
 from data.dataset import ADOmicsDataset
-from configs import CellStateEncoderConfig, ScRNATransformerConfig, TrainingParameterConfig
+from configs import CellStateEncoderConfig, ScRNATransformerConfig, TrainingConfig
 
 
 def train_model_with_hyperparams(config, data_path, num_epochs=5, subset_size=500):
@@ -74,7 +74,7 @@ def train_model_with_hyperparams(config, data_path, num_epochs=5, subset_size=50
         dropout=config.get("transformer_dropout", 0.1),
     )
 
-    training_config = TrainingParameterConfig(
+    training_config = TrainingConfig(
         batch_size=config["batch_size"],
         epochs=num_epochs,
         learning_rate=config["learning_rate"],
@@ -85,7 +85,7 @@ def train_model_with_hyperparams(config, data_path, num_epochs=5, subset_size=50
     model = ADClassifierLightning(
         cell_state_encoder_config=cell_state_config,
         scrna_transformer_config=transformer_config,
-        training_parameter_config=training_config,
+        training_config=training_config,
     )
 
     # Setup metrics reporting callback
