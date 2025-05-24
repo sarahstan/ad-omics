@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class TrainingParameterConfig:
+class TrainingConfig:
     """
     Configuration class for training parameters.
     """
