@@ -2,7 +2,7 @@ from typing import Tuple
 import lightning as ltn
 import torch
 import numpy as np
-from models.torch.mlp_classifier import ADClassifier
+from models.mlp.classifier import ADClassifier
 
 
 class ADClassifierLightning(ltn.LightningModule):
