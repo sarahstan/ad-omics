@@ -17,7 +17,7 @@ if not hasattr(np, "infty"):
 
 
 class scDATA:
-    def __init__(self, data_path: str, verbose: bool = False):
+    def __init__(self, data_path: str, verbose: bool = False, debug: bool = False):
 
         # Specify the data path
         self.data_path = data_path
@@ -27,6 +27,9 @@ class scDATA:
 
         # Set paths for data files
         self.set_paths()
+
+        # Set debug status
+        self.debug = debug
 
         self.adata = None  # Will hold AnnData object
         self.metadata = None
@@ -97,6 +100,15 @@ class scDATA:
         # Read gene and cell names
         genes = pd.read_csv(self.genes_path, header=None)
         cells = pd.read_csv(self.barcodes_path, header=None)
+
+        if self.debug: #select only 200 cells, all genes
+            self.debug_num = 200
+            # Create a copy before slicing to avoid view issues
+            self.adata = self.adata.copy()
+            self.adata = self.adata[:,:self.debug_num]
+            cells = cells[:self.debug_num] 
+            print(f'Selected {self.debug_num} cells only for debugging.')
+
         self._print(f"Number of genes in file: {len(genes)}")
         self._print(f"Number of cells in file: {len(cells)}")
         # check if a transpose needed for alignment
@@ -105,6 +117,8 @@ class scDATA:
             self.adata.obs_names = cells[0].values
             self._print("Successfully assigned gene and cell names!")
         elif self.adata.shape[0] == len(genes) and self.adata.shape[1] == len(cells):
+            # Create a copy before transposing
+            self.adata = self.adata.copy()
             # Transpose and match
             self.adata = self.adata.T
             self.adata.var_names = genes[0].values
@@ -122,7 +136,13 @@ class scDATA:
         self.metadata = pyreadr.read_r(self.meta_path)
         # only one object in the file
         self.metadata = self.metadata[None]
-        self._print("Metadata loaded sucessfully.")
+        self._print(f"Original metadata shape: {self.metadata.shape}")
+        if self.debug:
+            if self.metadata.index.isin(self.adata.obs_names).any():
+                self.metadata = self.metadata.loc[self.metadata.index.isin(self.adata.obs_names)]
+                print(f'Metadata filtered to match {len(self.metadata)} cells in debug adata.')
+        
+        self._print("Final Metadata shape:")
         self._print(self.metadata.shape)
         self._print(self.metadata.columns)
         self._print(self.metadata.head())
@@ -177,11 +197,11 @@ class scDATA:
         }
 
         # Output summary to console
-        print("QC Summary:")
-        print(f"Original: {orig_shape[0]} cells x {orig_shape[1]} genes")
-        print(f"After filtering: {self.adata.shape[0]} cells x {self.adata.shape[1]} genes")
-        print(f"Mean genes per cell: {qc_summary['mean_genes_per_cell']:.2f}")
-        print(f"Median genes per cell: {qc_summary['median_genes_per_cell']:.2f}")
+        self._print("QC Summary:")
+        self._print(f"Original: {orig_shape[0]} cells x {orig_shape[1]} genes")
+        self._print(f"After filtering: {self.adata.shape[0]} cells x {self.adata.shape[1]} genes")
+        self._print(f"Mean genes per cell: {qc_summary['mean_genes_per_cell']:.2f}")
+        self._print(f"Median genes per cell: {qc_summary['median_genes_per_cell']:.2f}")
 
         # You can also export QC metrics to a file if needed
         if saveQC:
@@ -254,7 +274,7 @@ class scDATA:
         )
         # Extract the list of selected genes
         hvg_genes = self.adata.var.index[self.adata.var.highly_variable].tolist()
-        print(f"Selected {len(hvg_genes)} variable genes using Seurat v3 method")
+        self._print(f"Selected {len(hvg_genes)} variable genes using Seurat v3 method")
         # Store statistics in our gene_stats attribute
         self.gene_stats = self.adata.var.copy()
         # Create adata_hvg
@@ -264,7 +284,7 @@ class scDATA:
             sc.pp.scale(self.adata_hvg, max_value=10)
         return hvg_genes
 
-    def run_pca(self, n_comps=30):
+    def run_pca(self, use_split=False, split_subset=None, n_comps=30):
         """
         Run PCA on the processed data with highly variable genes.
 
@@ -272,13 +292,15 @@ class scDATA:
         -----------
         n_comps : int, default=60
             Number of principal components to compute
+        use_split : Boolean
+        split_subset : None or string specifying a computed subset of the total data: train, test, val
 
         Returns:
         --------
         bool
             True if PCA was successful, False otherwise
         """
-        print("Running PCA...")
+        self._print("Running PCA...")
 
         # Check if we have adata_hvg
         if self.adata_hvg is None:
@@ -295,20 +317,59 @@ class scDATA:
 
         # Run PCA
         try:
-            sc.tl.pca(self.adata_hvg, svd_solver="arpack", n_comps=n_comps)
+            if use_split:
+                # Run train/test/split to get masks
+                train_mask, val_mask, test_mask = self.split_patient_level()
+                
+                # Apply to adata_hvg and create matching metadata
+                if split_subset == "train":
+                    pca_input = self.adata_hvg[train_mask].copy()  # Create a copy to avoid view issues
+                    metadata_input = self.metadata.loc[train_mask[train_mask].index]
+                    subset_name = "training"
+                elif split_subset == "test":
+                    pca_input = self.adata_hvg[test_mask].copy()
+                    metadata_input = self.metadata.loc[test_mask[test_mask].index]
+                    subset_name = "test"
+                elif split_subset == "val":
+                    pca_input = self.adata_hvg[val_mask].copy()
+                    metadata_input = self.metadata.loc[val_mask[val_mask].index]
+                    subset_name = "validation"
+                else:
+                    print("Error: split_subset must be train, test, or val.")
+                    return False
+                    
+                self._print(f"Running PCA on {subset_name} subset with {pca_input.n_obs} cells.")
+                self._print(f"Corresponding metadata shape: {metadata_input.shape}")
+            else: 
+                pca_input = self.adata_hvg
+                subset_name = "full dataset"
+
+            # Run PCA on the selected input
+            sc.tl.pca(pca_input, svd_solver="arpack", n_comps=n_comps)
 
             # Verify that PCA was successful by checking for X_pca in obsm
-            if "X_pca" not in self.adata_hvg.obsm:
+            if "X_pca" not in pca_input.obsm:
                 print("Error: PCA calculation did not produce expected results.")
                 return False
+            # Store the result appropriately - either keep it in the subset or transfer to main object
+            if use_split:
+                # Store the subset as a new attribute
+                setattr(self, f"adata_hvg_{split_subset}", pca_input)
+                setattr(self, f"metadata_{split_subset}", metadata_input)
+                self._print(f"PCA results stored in self.adata_hvg_{split_subset}")
+                self._print(f"Metadata stored in self.metadata_{split_subset}")
 
-            print(f"PCA completed successfully. Computed {n_comps} principal components.")
+            self._print(f"PCA completed successfully. Computed {n_comps} principal components.")
 
-            # Print variance explained by first few PCs
-            variance_ratio = self.adata_hvg.uns["pca"]["variance_ratio"]
-            # cumulative_variance = np.cumsum(variance_ratio)
-            print(f"Variance explained by first 5 PCs: {variance_ratio[:5].sum():.2%}")
-            print(f"Variance explained by all PCs: {variance_ratio.sum():.2%}")
+            # Print variance explained by first few PCs from the correct object
+            variance_ratio = pca_input.uns["pca"]["variance_ratio"]
+            cumulative_variance = np.cumsum(variance_ratio)
+            self._print(f"Variance explained by first 5 PCs: {variance_ratio[:5].sum():.2%}")
+            self._print(f"Variance explained by all PCs: {variance_ratio.sum():.2%}")
+            #Fixing a zero indexing error
+            pcs_for_90_percent = np.where(cumulative_variance >= 0.9)[0]
+            if len(pcs_for_90_percent)>0:
+                self._print(f"90% variance explained by first {np.where(cumulative_variance >= 0.9)[0][0] + 1} PCs")
 
             return True
 
@@ -319,7 +380,7 @@ class scDATA:
             traceback.print_exc()
             return False
 
-    def run_harmony(self, batch_key, max_iter_harmony=20, theta=2, lambda_val=1):
+    def run_harmony(self, batch_key, subset = None, max_iter_harmony=20, theta=2, lambda_val=1):
         """
         Run Harmony batch correction on PCA results.
 
@@ -327,6 +388,8 @@ class scDATA:
         -----------
         batch_key : str
             Column in metadata containing batch information
+        subset : None or str, default=None
+            Specify which dataset to use: None for full dataset, 'train', 'test', or 'val' for specific subsets
         max_iter_harmony : int, default=20
             Maximum number of iterations for Harmony
         theta : float, default=2
@@ -339,7 +402,28 @@ class scDATA:
         bool
             True if Harmony correction was successful, False otherwise
         """
-        print(f"Running Harmony batch correction using '{batch_key}'...")
+        # Determine which dataset to use
+        if subset is None:
+            # Use full dataset
+            input_data = self.adata_hvg
+            subset_name = "full dataset"
+        else:
+            # Use the specified subset if it exists
+            subset_attr = f"adata_hvg_{subset}"
+            if hasattr(self, subset_attr):
+                input_data = getattr(self, subset_attr)
+                subset_name = f"{subset} subset"
+            else:
+                print(f"Error: Subset '{subset}' not found. Available subsets: ")
+                # List available subsets
+                available_subsets = [attr.replace("adata_hvg_", "") for attr in dir(self) if attr.startswith("adata_hvg_")]
+                if available_subsets:
+                    print(f"Available subsets: {', '.join(available_subsets)}")
+                else:
+                    print("No subsets available. Run run_pca with use_split=True first.")
+                return False
+        
+        self._print(f"Running Harmony batch correction on {subset_name} using '{batch_key}'...")
 
         # Check if the batch key exists
         if batch_key not in self.metadata.columns:
@@ -347,22 +431,59 @@ class scDATA:
             print(f"Available columns: {list(self.metadata.columns)}")
             return False
 
-        # Make sure we have PCA results
-        if self.adata_hvg is None or "X_pca" not in self.adata_hvg.obsm:
-            print("No PCA results found. Running PCA first...")
-            pca_success = self.run_pca()
-            if not pca_success:
-                print("Failed to run PCA. Cannot proceed with Harmony.")
+        # Make sure we have PCA results in the selected dataset
+        if input_data is None or "X_pca" not in input_data.obsm:
+            print(f"No PCA results found for {subset_name}.")
+            if subset is None:
+                print("Running PCA on full dataset first...")
+                pca_success = self.run_pca()
+                if not pca_success:
+                    print("Failed to run PCA. Cannot proceed with Harmony.")
+                    return False
+                input_data = self.adata_hvg
+            else:
+                print(f"Please run PCA on the {subset} subset first using run_pca(use_split=True, split_subset='{subset}').")
                 return False
 
         try:
             # import Harmony
             import harmonypy
 
-            # Get PCA matrix
-            pca_matrix = self.adata_hvg.obsm["X_pca"]
-            # Get the metadata
-            meta_data = self.metadata.loc[self.adata_hvg.obs.index, [batch_key]]
+            # Get PCA matrix from the selected dataset
+            pca_matrix = input_data.obsm["X_pca"]
+            
+            # Get the metadata for the cells in this dataset
+            # Filter metadata to only include cells in the input_data
+            self._print(f"Input data shape: {input_data.shape}")
+            self._print(f"Input data obs index length: {len(input_data.obs.index)}")
+            self._print(f"PCA matrix shape: {pca_matrix.shape}")
+            self._print(f"Metadata shape: {self.metadata.shape}")
+            self._print(f"Sample of input data obs index: {list(input_data.obs.index[:5])}")
+            self._print(f"Sample of metadata index: {list(self.metadata.index[:5])}")
+            
+            # Check if indices overlap
+            common_indices = input_data.obs.index.intersection(self.metadata.index)
+            self._print(f"Number of overlapping indices: {len(common_indices)}")
+            
+            if len(common_indices) == 0:
+                print("Error: No overlapping cell indices between input data and metadata.")
+                print("This suggests a mismatch between cell identifiers.")
+                return False
+            
+            # Filter to common indices only
+            try:
+                meta_data = self.metadata.loc[common_indices] #, [batch_key]
+                self._print(f"Filtered metadata shape: {meta_data.shape}")
+                
+                # Also filter input data to match
+                input_data = input_data[input_data.obs.index.isin(common_indices)].copy()
+                self._print(f"Filtered input data shape: {input_data.shape}")                
+                
+            except Exception as e:
+                print(f"Error filtering metadata: {e}")
+                print(f"Available columns in metadata: {list(self.metadata.columns)}")
+                print(f"Batch key '{batch_key}' in metadata: {batch_key in self.metadata.columns}")
+                return False
 
             # Initialize and run Harmony
             harmony_object = harmonypy.run_harmony(
@@ -373,19 +494,34 @@ class scDATA:
                 lamb=lambda_val,  # Ridge regression penalty
                 max_iter_harmony=max_iter_harmony,
             )
+            
             # double-checking shape
-            print("Z_corr shape:", harmony_object.Z_corr.shape)
-            print(
-                "Expected shape:",
-                self.adata_hvg.shape[0],
-                "x",
-                self.adata_hvg.obsm["X_pca"].shape[1],
-            )
+            self._print(f"Z_corr shape: {harmony_object.Z_corr.shape}")
+            self._print(f"Expected shape: {input_data.shape[0]} x {input_data.obsm['X_pca'].shape[1]}")
+            
             # Store the corrected PCA matrix, transposed
-            self.adata_hvg.obsm["X_pca_harmony"] = harmony_object.Z_corr.T
+            input_data.obsm["X_pca_harmony"] = harmony_object.Z_corr.T
 
-            print("Harmony batch correction complete.")
-            print("Harmony embeddings stored in adata_hvg.obsm['X_pca_harmony'].")
+            self._print(f"Harmony batch correction complete for {subset_name}.")
+            
+            if subset is None:
+                self._print("Harmony embeddings stored in adata_hvg.obsm['X_pca_harmony'].")
+            else:
+                self._print(f"Harmony embeddings stored in adata_hvg_{subset}.obsm['X_pca_harmony'].")
+
+            # Store references to Harmony datasets for each subset
+            if subset is None:
+                # Store reference for the full dataset
+                self.harmony_input_full = input_data
+                # Also set current references for backward compatibility
+                self.current_harmony_input = input_data
+                self.current_harmony_subset = "full"
+            else:
+                # Store subset-specific references
+                setattr(self, f"harmony_input_{subset}", input_data)
+                # Also update the current references
+                self.current_harmony_input = input_data
+                self.current_harmony_subset = subset
 
             return True
 
@@ -407,13 +543,13 @@ class scDATA:
         except Exception as e:
             print(f"Error running Harmony: {e}")
             import traceback
-
             traceback.print_exc()
             return False
 
     def run_umap(
         self,
         use_harmony=True,
+        use_subsets=False,
         n_neighbors=30,
         min_dist=0.3,
         metric="euclidean",
@@ -422,11 +558,14 @@ class scDATA:
     ):
         """
         Run UMAP on PCA results or Harmony-corrected PCA.
+        If use_subsets=True, fits UMAP on the training subset and transforms test and validation subsets.
 
         Parameters:
         -----------
         use_harmony : bool, default=True
             Whether to use Harmony-corrected PCA if available
+        use_subsets : bool, default=False
+            Compute fit_transform for 'train', and just transform for 'test' and 'val' subsets
         n_neighbors : int, default=30
             Number of neighbors to consider for each point
         min_dist : float, default=0.3
@@ -440,56 +579,207 @@ class scDATA:
 
         Returns:
         --------
-        pandas.DataFrame
-            DataFrame with UMAP embeddings
+        bool
+            True if UMAP was successful, False otherwise
         """
-        print("Running UMAP...")
-
-        # Make sure we have PCA results
-        if self.adata_hvg is None or "X_pca" not in self.adata_hvg.obsm:
-            print("No PCA results found. Running PCA first...")
-            self.run_pca()
-
+        self._print("Running UMAP...")
+        
         try:
-            # Determine which PCA embedding to use
-            pca_key = (
-                "X_pca_harmony"
-                if use_harmony and "X_pca_harmony" in self.adata_hvg.obsm
-                else "X_pca"
-            )
-
-            if pca_key == "X_pca_harmony":
-                print("Using Harmony-corrected PCA for UMAP")
+            # Determine which input data to use based on whether we want subsets
+            if use_subsets:
+                # Check if we have the required subsets
+                required_subsets = ["train", "test", "val"]
+                for subset in required_subsets:
+                    subset_attr = f"adata_hvg_{subset}"
+                    if not hasattr(self, subset_attr):
+                        print(f"Error: '{subset}' subset not found. Run PCA with use_split=True first.")
+                        print(f"Run: self.run_pca(use_split=True, split_subset='{subset}')")
+                        return False
+                
+                # Determine input data source and PCA embedding key to use
+                if use_harmony:
+                    # When using Harmony, we get data from harmony_input_{subset}
+                    # and look for X_pca_harmony embedding
+                    pca_key = "X_pca_harmony"
+                    
+                    # Check if all harmony inputs exist
+                    for subset in required_subsets:
+                        harmony_attr = f"harmony_input_{subset}"
+                        if not hasattr(self, harmony_attr):
+                            print(f"Error: Harmony results not found for {subset} subset.")
+                            print(f"Run: self.run_harmony(batch_key='your_batch_key', subset='{subset}')")
+                            return False
+                        
+                        # Check if harmony embeddings exist
+                        subset_data = getattr(self, harmony_attr)
+                        if pca_key not in subset_data.obsm:
+                            print(f"Error: Harmony embeddings not found in {subset} data.")
+                            print(f"Something went wrong with Harmony processing for {subset} subset.")
+                            return False
+                else:
+                    # When not using Harmony, we get data from adata_hvg_{subset}
+                    # and look for X_pca embedding
+                    pca_key = "X_pca"
+                    
+                    # Check if all subsets exist with PCA results
+                    for subset in required_subsets:
+                        subset_attr = f"adata_hvg_{subset}"
+                        if not hasattr(self, subset_attr):
+                            print(f"Error: {subset} subset not found.")
+                            print(f"Run: self.run_pca(use_split=True, split_subset='{subset}')")
+                            return False
+                        
+                        # Check if PCA embeddings exist
+                        subset_data = getattr(self, subset_attr)
+                        if pca_key not in subset_data.obsm:
+                            print(f"Error: PCA embeddings not found for {subset} subset.")
+                            print(f"Run: self.run_pca(use_split=True, split_subset='{subset}')")
+                            return False
+                
+                self._print(f"Using {'Harmony-corrected' if use_harmony else 'standard'} PCA for UMAP")
+                
+                # Get train data for fitting
+                if use_harmony:
+                    train_data = getattr(self, "harmony_input_train")
+                else:
+                    train_data = getattr(self, "adata_hvg_train")
+                    
+                X_train = train_data.obsm[pca_key]
+                
+                # Create UMAP reducer
+                umap_reducer = UMAP(
+                    n_neighbors=n_neighbors,
+                    min_dist=min_dist,
+                    metric=metric,
+                    n_components=n_components,
+                    random_state=random_state,
+                )
+                
+                # Fit UMAP on training data
+                self._print("Fitting UMAP on training data...")
+                train_embedding = umap_reducer.fit_transform(X_train)
+                
+                # Store the UMAP model for later use
+                self.umap_model = umap_reducer
+                
+                # Create dataframes for each subset
+                train_df = pd.DataFrame(
+                    train_embedding,
+                    index=train_data.obs.index,
+                    columns=[f"UMAP{i+1}" for i in range(n_components)],
+                )
+                
+                # Now transform test and validation data using the fitted model
+                subset_embeddings = {}
+                subset_dfs = {}
+                
+                subset_embeddings["train"] = train_embedding
+                subset_dfs["train"] = train_df
+                
+                for subset in ["test", "val"]:
+                    # Get the appropriate data for this subset
+                    if use_harmony:
+                        subset_data = getattr(self, f"harmony_input_{subset}")
+                    else:
+                        subset_data = getattr(self, f"adata_hvg_{subset}")
+                        
+                    X_subset = subset_data.obsm[pca_key]
+                    
+                    self._print(f"Transforming {subset} data using trained UMAP model...")
+                    subset_embedding = umap_reducer.transform(X_subset)
+                    
+                    # Store embeddings
+                    subset_embeddings[subset] = subset_embedding
+                    
+                    # Create dataframe
+                    subset_df = pd.DataFrame(
+                        subset_embedding,
+                        index=subset_data.obs.index,
+                        columns=[f"UMAP{i+1}" for i in range(n_components)],
+                    )
+                    subset_dfs[subset] = subset_df
+                
+                # Store all embeddings as attributes
+                for subset, embedding in subset_embeddings.items():
+                    setattr(self, f"umap_embedding_{subset}", embedding)
+                
+                # Store all dataframes as attributes
+                for subset, df in subset_dfs.items():
+                    setattr(self, f"embedding_df_{subset}", df)
+                
+                # Create a combined embedding dataframe with all subsets (optional)
+                combined_df = pd.concat([subset_dfs[subset] for subset in required_subsets])
+                self.embedding_df = combined_df
+                
+                # For backward compatibility, store the training embedding as the default one
+                self.umap_embedding = train_embedding
+                
+                self._print("UMAP completed successfully for all subsets.")
+                return True
+                
             else:
-                print("Using standard PCA for UMAP")
+                # Original code for when not using subsets (full dataset)
+                # Determine which data source to use
+                if use_harmony:
+                    if "harmony_input_full" not in dir(self):
+                        print("Error: Harmony results for full dataset not found.")
+                        print("Run: self.run_harmony(batch_key='your_batch_key')")
+                        return False
+                    input_data = self.harmony_input_full
+                else:
+                    input_data = self.adata_hvg
 
-            # Use PCA results as input to reduce noise and computation time
-            X_pca = self.adata_hvg.obsm[pca_key]
+                # Determine which PCA embedding to use
+                pca_key = "X_pca_harmony" if use_harmony else "X_pca"
+                
+                # Check if the required PCA/Harmony results exist
+                if pca_key not in input_data.obsm:
+                    if use_harmony:
+                        print("Error: Harmony-corrected PCA not found for full dataset.")
+                        print("Run: self.run_harmony(batch_key='your_batch_key')")
+                    else:
+                        print("Error: PCA not found for full dataset.")
+                        print("Run: self.run_pca()")
+                    return False
 
-            # Create UMAP reducer
-            umap_reducer = UMAP(
-                n_neighbors=n_neighbors,
-                min_dist=min_dist,
-                metric=metric,
-                n_components=n_components,
-                random_state=random_state,
-            )
+                if pca_key == "X_pca_harmony":
+                    self._print("Using Harmony-corrected PCA for UMAP")
+                else:
+                    self._print("Using standard PCA for UMAP")
 
-            # Fit UMAP
-            umap_embedding = umap_reducer.fit_transform(X_pca)
+                # Use PCA results as input to reduce noise and computation time
+                X_pca = input_data.obsm[pca_key]
 
-            # Create dataframe for visualization
-            self.embedding_df = pd.DataFrame(
-                umap_embedding,
-                index=self.adata_hvg.obs.index,
-                columns=[f"UMAP{i+1}" for i in range(n_components)],
-            )
+                # Create UMAP reducer
+                umap_reducer = UMAP(
+                    n_neighbors=n_neighbors,
+                    min_dist=min_dist,
+                    metric=metric,
+                    n_components=n_components,
+                    random_state=random_state,
+                )
+    
+                # Fit UMAP
+                self.umap_embedding = umap_reducer.fit_transform(X_pca)
+                
+                # Store the UMAP model for later use
+                self.umap_model = umap_reducer
 
-            return self.embedding_df
+                # Create dataframe for visualization for the whole dataset
+                self.embedding_df = pd.DataFrame(
+                    self.umap_embedding,
+                    index=input_data.obs.index,
+                    columns=[f"UMAP{i+1}" for i in range(n_components)],
+                )
+                
+                self._print("UMAP completed successfully for the full dataset.")
+                return True
 
         except Exception as e:
             print(f"Error running UMAP: {e}")
-            return None
+            import traceback
+            traceback.print_exc()
+            return False
 
     def split_patient_level(
         self,
@@ -760,3 +1050,570 @@ class scDATA:
 
         self.is_split = False
         print("Split data cleared")
+    
+    def find_discriminative_genes(self,n_genes_de=500,n_genes_final=100,condition_col='ADdiag2types'):
+        # Use differential expression to find biologically relevant genes that differ in disease
+        # Use Random Forest on DE genes for predictive importance
+        # Combine scores and rank
+        from sklearn.ensemble import RandomForestClassifier
+        import numpy as np
+
+        # First make sure to add condition_col to adata.obs
+        self.adata.obs[condition_col] = self.metadata[condition_col]
+        # Next, check if data are log-transformed and transform if necessary  
+        
+        print("Checking data format...")
+        print(f"Data type: {self.adata.X.dtype}")
+        print(f"Data range before: {self.adata.X.min():.3f} to {self.adata.X.max():.3f}")
+        print(f"Is sparse: {hasattr(self.adata.X, 'toarray')}")
+        
+        # Check if preprocessing is needed
+        if self.adata.X.max() > 50:
+            print("Preprocessing raw count data...")
+            
+            # Store original
+            self.adata.raw = self.adata.copy()
+            
+            # Ensure float type
+            if hasattr(self.adata.X, 'toarray'):
+                self.adata.X = self.adata.X.astype(np.float32)
+            else:
+                self.adata.X = self.adata.X.astype(np.float32)
+            
+            # Standard scRNA-seq preprocessing
+            sc.pp.normalize_total(self.adata, target_sum=1e4)
+            sc.pp.log1p(self.adata)
+            
+            print(f"Data type after: {self.adata.X.dtype}")
+            print(f"Data range after: {self.adata.X.min():.6f} to {self.adata.X.max():.6f}")
+            print("✓ Data normalized and log-transformed")
+        else:
+            print("Data appears to already be processed")
+
+        # 1-Start with differential expression to get biologically relevant genes
+        sc.tl.rank_genes_groups(self.adata, condition_col, method='wilcoxon')
+        print("OK to ignore prior warning, data is log-transformed")
+        de_genes = sc.get.rank_genes_groups_df(self.adata, group=None)   
+
+        #make sure genes are in data
+        valid_de_genes = de_genes[de_genes['names'].isin(self.adata.var_names)].copy()
+        print(f"DE analysis found {len(de_genes)} genes, {len(valid_de_genes)} are in adata")
+        top_de_genes = valid_de_genes.head(min(n_genes_de, len(valid_de_genes)))['names'].tolist()
+        print('Found top DE genes.')
+        
+        #2-Use Random Forest on DE genes for predictive importance
+        X_de = self.adata[:, top_de_genes].X
+        y_train = self.adata.obs[condition_col]
+
+        #Check shape match
+        if X_de.shape[0] != len(y_train):
+            raise ValueError(f"Mismatch: X has {X_de.shape[0]} samples, y has {len(y_train)} samples")
+    
+        rf = RandomForestClassifier(n_estimators=100, random_state=42)
+        rf.fit(X_de, y_train)
+        print('Random Forest Classifier fitted to data, extracting feature importance.')
+
+        #Get rf_importance from the dataframe
+        rf_importance = pd.Series(rf.feature_importances_, index=top_de_genes)
+    
+        # Get DE scores for the genes we used (from the DataFrame, not the list)
+        top_de_genes_df = valid_de_genes.head(min(n_genes_de, len(valid_de_genes)))
+        de_scores = top_de_genes_df.set_index('names')['scores']
+        
+        print('Combining DE and RF scores.')
+
+        # Combine scores (ensure indices align)
+        combined_scores = rf_importance * de_scores[rf_importance.index]
+        
+        final_genes = combined_scores.nlargest(min(n_genes_final, len(combined_scores))).index.tolist()
+        self.adata_dg = self.adata[:, final_genes].copy()
+
+        print(f'Top {len(final_genes)} discriminative genes added to adata_dg.')
+        
+        return final_genes
+    
+    def run_classifier_pipeline(self,limit_dg=True):
+        """Takes full AnnData or HVG subset, adds features to .obsm, splits data and metadata, and fits 
+        sequence of classifiers, using five-fold cross-validation and grid search strategies for 
+        hyperparameter tuning. Displays AUC values by method, overall and separated by cell type. """
+
+        #Note: will only run DNN on the full dataset, will take significant resources
+
+        #First, add classifier features to the .obsm section
+        self._add_classifier_features(limit_dg)
+
+        #Second, generate train/test/val subsets for classifiers
+        # First, splits
+        train_mask, val_mask, test_mask = self.split_patient_level()
+        x_train, x_val, x_test, y_train, y_val, y_test = self._generate_subsets_for_classifier(
+            limit_dg,train_mask, val_mask, test_mask)
+
+
+        #List of classifiers from ScATT paper: Logistic Regression, SVM, Decision Tree, 
+        # ADAboost, XGboost, ResNet (residual netork), DNN (deep neural network)
+        #Suggested by Claude: RF (random forest), SVM, Logistic Regression. Excluding ResNet due to compute. 
+        
+        # Run Grid Search with Crossfold Validation to create the best models of training data
+        # Save results into self.trained_models[model_name]
+        self._model_comparison(x_train, x_val, x_test, y_train, y_val, y_test, include_dnn=False, cv_folds=5)
+
+        # Evaluate all models with their best parameters
+        self._final_test_evaluation()
+
+        
+
+    def _add_classifier_features(self,limit_dg):
+        #Add helpful classifier features from metadata, including:
+        #  celltype, msex. Can add brain_region or others later
+        from sklearn.preprocessing import OneHotEncoder
+        
+        feature_list = ['celltype','msex', 'brain_region'] 
+
+        # One-hot encode
+        encoder = OneHotEncoder(sparse_output=False, dtype=int)
+
+        # Encode each feature and add to the appropriate spot
+        for feature in feature_list:
+            curr_feature = self.metadata[feature].values.reshape(-1,1)
+            print(curr_feature.shape)
+            curr_onehot = encoder.fit_transform(curr_feature)
+            print(curr_onehot.shape)
+            if limit_dg:
+                print(f"Adding X_onehot_{feature} to adata_dg.obsm")
+                self.adata_dg.obsm[f"X_onehot_{feature}"] = curr_onehot
+            else:
+                print(f"Adding X_onehot_{feature} to adata.obsm")
+                self.adata.obsm[f"X_onehot_{feature}"] = curr_onehot
+
+    def _generate_subsets_for_classifier(self,limit_dg,train_mask, val_mask, test_mask):        
+
+        #Split data and compute subsets for train/test/val        
+        if limit_dg:
+            # Apply to adata_dg, separate X for train/val/test at end
+            x_complete_adata = self.adata_dg.copy()
+        else: 
+            x_complete_adata = self.adata.copy()
+
+        #Make train/val/test subsets of y data using masks        
+        y_train = self.metadata.loc[train_mask[train_mask].index]   
+        y_val = self.metadata.loc[val_mask[val_mask].index]       
+        y_test = self.metadata.loc[test_mask[test_mask].index]
+        
+        # Convert categorical to binary
+        y_train = y_train['ADdiag2types'].copy()
+        y_train = y_train.map({'nonAD': 0, 'AD': 1})
+        y_val = y_val['ADdiag2types'].copy()
+        y_val = y_val.map({'nonAD': 0, 'AD': 1})
+        y_test = y_test['ADdiag2types'].copy()
+        y_test = y_test.map({'nonAD': 0, 'AD': 1})
+
+        #Combine X with obsm classifier features
+        if hasattr(x_complete_adata.X, 'toarray'):
+            X_expr = x_complete_adata.X.toarray() # Convert sparse to dense
+        else: 
+            X_expr = x_complete_adata.X
+        
+        #Get classifier features from .obsm
+        classifier_features = []
+        obsm_keys = [key for key in x_complete_adata.obsm.keys() if 'X_' in key]
+        
+        if obsm_keys:
+            print(f"Found classifier features in .obsm: {obsm_keys}")
+            for key in obsm_keys:
+                curr_feature = x_complete_adata.obsm[key]
+                print(f"  {key}: {curr_feature.shape}")
+                classifier_features.append(curr_feature)
+            
+            classifier_features_combined = np.hstack(classifier_features)
+            X_total_combined = np.hstack([X_expr,classifier_features_combined])
+            print(f"Combined features: {X_expr.shape} + {classifier_features_combined.shape} = {X_total_combined.shape}")
+        else:
+            print("No classifier features found in .obsm, using only .X")
+            X_total_combined = X_expr
+
+        #Separate X_total_combined using train/test/val split
+        
+        #Generate numeric indices boolean for use on arrays
+        train_mask_numeric = np.where(train_mask.values)[0]
+        val_mask_numeric = np.where(val_mask.values)[0]
+        test_mask_numeric = np.where(test_mask.values)[0]
+        
+
+        #Make the split
+        x_train = X_total_combined[train_mask_numeric]
+        x_val = X_total_combined[val_mask_numeric]
+        x_test = X_total_combined[test_mask_numeric]
+    
+        print(f"Final feature matrices:")
+        print(f"  X_train: {x_train.shape}, dtype: {x_train.dtype}")
+        print(f"  Y_train: {y_train.shape}, dtype: {y_train.dtype}")
+        print(f"  X_val: {x_val.shape}, dtype: {x_val.dtype}")
+        print(f"  X_test: {x_test.shape}, dtype: {x_test.dtype}")
+        
+        
+        return x_train, x_val, x_test, y_train, y_val, y_test
+    
+    def _model_comparison(self, x_train, x_val, x_test, y_train, y_val, y_test, 
+                          include_dnn=False, cv_folds=5, checkpoint_file='model_checkpoint.pkl'):
+        """
+        Comprehensive model comparison including all models from the paper.
+            Not including ResNet for computational reasons.
+            Model List: Logistic Regression, SVM, Decision Tree, Random Forest, ADAboost, XGBoost, optionally DNN
+        """
+        from sklearn.model_selection import GridSearchCV, ParameterGrid, StratifiedKFold
+        from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
+        from sklearn.svm import SVC
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.tree import DecisionTreeClassifier
+        from sklearn.neural_network import MLPClassifier
+        from sklearn.metrics import roc_auc_score
+        import xgboost as xgb
+        import pandas as pd
+        import numpy as np
+        import time
+        import pickle
+        import os
+    
+        print(f"Training set, X: {x_train.shape}")
+        print(f"Training set, y: {y_train.shape}")
+        print(f"Validation set, X: {x_val.shape}")
+        print(f"Validation set, y: {y_val.shape}")
+        print(f"Test set, X: {x_test.shape}")
+        print(f"Test set, y: {y_test.shape}")    
+
+        #Base list of models
+        models = {
+                'logistic': LogisticRegression(random_state=42, max_iter=1000),
+                 'svm': SVC(random_state=42),
+                'decision_tree': DecisionTreeClassifier(random_state=42),
+                'random_forest': RandomForestClassifier(random_state=42),
+                'adaboost': AdaBoostClassifier(random_state=42),
+                'xgboost': xgb.XGBClassifier(random_state=42, eval_metric='logloss')
+            }
+        #Base grid parameter list
+        param_grids = {
+            'logistic': [
+                # Focus on l1 penalty with liblinear (your best combination after bigger search)
+                {
+                    'penalty': ['l1'],
+                    'solver': ['liblinear'],
+                    'C': [0.01, 0.05, 0.1, 0.2, 0.5],  # Fine-tune around 0.1
+                    'max_iter': [1000]
+                },
+                
+                # Add a small grid for l2 just to verify
+                {
+                    'penalty': ['l2'],
+                    'solver': ['liblinear', 'saga'],
+                    'C': [0.1, 1.0, 10.0],
+                    'max_iter': [1000]
+                },
+                
+                # Minimal elasticnet option
+                {
+                    'penalty': ['elasticnet'],
+                    'solver': ['saga'],
+                    'C': [0.1, 1.0],
+                    'l1_ratio': [0.5, 0.9],
+                    'max_iter': [1000]
+                }
+            ],
+            'svm': [
+                # Start with just linear kernel - fastest option
+                {
+                    'kernel': ['linear'],
+                    'C': [1, 10, 100],  # Reduced from 4 to 3 values
+                },
+                # Only try RBF with very few parameters
+                {
+                    'kernel': ['rbf'],
+                    'C': [1, 10],       # Only 2 C values
+                    'gamma': ['scale'], # Only 1 gamma value
+                }
+                # Remove poly kernel entirely - it's very slow
+            ],
+            'decision_tree': {
+                # More data = deeper trees allowed
+                'max_depth': [10, 15, 20, 25, None],
+                'min_samples_split': [2, 5, 10, 20],
+                'min_samples_leaf': [1, 2, 5, 10],
+                'criterion': ['gini', 'entropy'],
+                'max_features': ['sqrt', 'log2', None]
+            },
+            'random_forest': {
+                # More data = deeper trees allowed
+                'n_estimators': [100, 200, 500],
+                'max_depth': [10, 20, None],
+                'min_samples_split': [2, 5, 10],
+                'min_samples_leaf': [1, 2, 5],
+                'max_features': ['sqrt', 'log2', 0.5]
+            },
+            'adaboost': {
+                # More data = more estimators viable
+                'n_estimators': [50, 100, 200],
+                'learning_rate': [0.01, 0.1, 0.5, 1.0],
+                'algorithm': ['SAMME.R']
+            },
+            'xgboost': {
+                'n_estimators': [100, 300, 500], 
+                'max_depth': [3, 6, 9],
+                'learning_rate': [0.01, 0.1, 0.3], 
+                'subsample': [0.8, 1.0], 
+                'colsample_bytree': [0.8, 1.0], 
+                'reg_alpha': [0, 1], 
+                'reg_lambda': [1, 5], 
+                'min_child_weight': [1, 3] 
+            }
+        }
+
+        #To include DNN
+        if include_dnn:
+            models['dnn'] = MLPClassifier(
+                random_state=42, 
+                early_stopping=True,
+                validation_fraction=0.1,  # Use 10% of training data for early stopping
+                n_iter_no_change=10  # Stop if no improvement for 10 epochs
+            )
+            param_grids['dnn'] = {
+                # Simplified architecture options
+                'hidden_layer_sizes': [
+                    (100,),                # Simple single-layer
+                    (200, 100),            # Medium two-layer
+                    (300, 150, 75)         # One deeper option
+                ],
+                'activation': ['relu'],   
+                'alpha': [0.0001, 0.001],  # Reduced regularization options
+                'learning_rate_init': [0.001, 0.01],  # Most common learning rates
+                'batch_size': [64, 128],   # Reasonable batch sizes
+                'max_iter': [300]          
+            }
+        
+        # Load previous results or create empty variable
+        # Try to load existing results
+        results = {}
+        if os.path.exists(checkpoint_file):
+            try:
+                with open(checkpoint_file, 'rb') as f:
+                    results = pickle.load(f)
+                print(f"Loaded checkpoint with {len(results)} completed models: {list(results.keys())}")
+            except Exception as e:
+                print(f"Could not load checkpoint: {e}")
+                results = {}
+
+        # Train each model
+        for model_name in models.keys():
+            # Skip if already completed
+            if model_name in results:
+                print(f"Skipping {model_name} - already completed")
+                continue
+            print(f"\n{'='*50}")
+            print(f"Training {model_name.upper()}")
+            print(f"{'='*50}")
+            
+            start_time = time.time()
+
+            # Stratified CV for consistent evaluation
+            if model_name == 'svm':
+                cv_folds_model = 3  # Use 3-fold instead of 5-fold for SVM
+                print(f"Using {cv_folds_model}-fold CV for SVM (faster)")
+            else:
+                cv_folds_model = cv_folds
+            cv_strategy = StratifiedKFold(n_splits=cv_folds_model, shuffle=True, random_state=42)
+          
+            # Grid search with CV
+            grid_search = GridSearchCV(
+                estimator=models[model_name],
+                param_grid=param_grids[model_name],
+                cv=cv_strategy,
+                error_score=float('-inf'),
+                scoring='accuracy',
+                n_jobs=-1,
+                verbose=1
+            )
+            
+            # SVM is struggling with the full dataset
+            if model_name == 'svm':
+                # Use only 50% of training data for SVM
+                from sklearn.model_selection import train_test_split
+                x_train_svm, _, y_train_svm, _ = train_test_split(
+                    x_train, y_train, train_size=0.5, random_state=42, stratify=y_train
+                )
+                print(f"Using subset for SVM: {x_train_svm.shape[0]} samples instead of {x_train.shape[0]}")
+                # Fit on training data, SVM
+                grid_search.fit(x_train_svm, y_train_svm)
+            else:
+                # Fit on training data, other models
+                grid_search.fit(x_train, y_train)
+            
+            # Get best model
+            best_model = grid_search.best_estimator_
+
+            # After grid search completes
+            print("\n" + "-"*40)
+            print(f"BEST MODEL SUMMARY FOR {model_name.upper()}")
+            print("-"*40)
+            print(f"Best parameters: {grid_search.best_params_}")
+            print(f"Best CV score: {grid_search.best_score_:.4f}")
+            print(f"Model type: {type(grid_search.best_estimator_).__name__}")
+
+            # Better error handling for predict_proba
+            if hasattr(best_model, 'predict_proba'):
+                try:
+                    val_proba = best_model.predict_proba(x_val)[:, 1]
+                    print(f"Prediction probabilities shape: {val_proba.shape}")
+                except Exception as e:
+                    print(f"Error in predict_proba: {str(e)}")
+                    val_proba = None
+            else:
+                print("Model does not have predict_proba method")
+                val_proba = None
+
+            try:
+                val_accuracy = best_model.score(x_val, y_val)
+                print(f"Validation accuracy: {val_accuracy:.4f}")
+            except Exception as e:
+                print(f"Error calculating validation accuracy: {str(e)}")
+                val_accuracy = None
+
+            # Calculate additional metrics with better error handling
+            try:
+                if val_proba is not None:
+                    print(f"y_val unique values: {np.unique(y_val)}")
+                    print(f"val_proba range: [{min(val_proba)}, {max(val_proba)}]")
+                    val_auc = roc_auc_score(y_val, val_proba)
+                    print(f"Validation AUC: {val_auc:.4f}")
+                else:
+                    val_auc = None
+            except Exception as e:
+                print(f"Error calculating AUC: {str(e)}")
+                val_auc = None
+            
+            training_time = time.time() - start_time
+            
+            # Store results
+            results[model_name] = {
+                'best_model': best_model,
+                'best_params': grid_search.best_params_,
+                'cv_score': grid_search.best_score_,
+                'val_accuracy': val_accuracy,
+                'val_auc': val_auc,
+                'training_time': training_time,
+                'grid_search': grid_search
+            }
+            
+            #Save results for each model as it completes
+            # Save checkpoint after each model
+            try:
+                with open(checkpoint_file, 'wb') as f:
+                    pickle.dump(results, f)
+                print(f"Checkpoint saved with {len(results)} completed models")
+            except Exception as e:
+                print(f"Could not save checkpoint: {e}")
+
+            print(f"Best CV score: {grid_search.best_score_:.4f}")
+            print(f"Validation accuracy: {val_accuracy:.4f}")
+            if val_auc:
+                print(f"Validation AUC: {val_auc:.4f}")
+            print(f"Training time: {training_time:.2f} seconds")
+            print(f"Best parameters: {grid_search.best_params_}")
+        
+        # Create comparison summary
+        comparison_df = pd.DataFrame({
+            model: {
+                'CV_Score': results[model]['cv_score'],
+                'Val_Accuracy': results[model]['val_accuracy'],
+                'Val_AUC': results[model]['val_auc'],
+                'Training_Time': results[model]['training_time']
+            }
+            for model in results.keys()
+        }).T
+        
+        # Sort by validation accuracy
+        comparison_df = comparison_df.sort_values('Val_Accuracy', ascending=False)
+        
+        print(f"\n{'='*60}")
+        print("MODEL COMPARISON SUMMARY")
+        print(f"{'='*60}")
+        print(comparison_df)
+        
+        # Save all results to self for later access
+        self.model_comparison_results = results
+        self.trained_models = {name: results[name]['best_model'] for name in results.keys()}
+        self.best_parameters = {name: results[name]['best_params'] for name in results.keys()}
+        
+        # Find overall best model
+        best_model_name = comparison_df.index[0]
+        self.best_model_name = best_model_name
+        self.best_model = results[best_model_name]['best_model']
+        
+        print(f"\nOverall best model: {best_model_name}")
+        print(f"Best validation accuracy: {comparison_df.loc[best_model_name, 'Val_Accuracy']:.4f}")
+        print(f"\nAll trained models available: {list(self.trained_models.keys())}")
+        
+        return results, comparison_df
+    
+    def _final_test_evaluation(self, model_name=None):
+        """
+        Final evaluation on test set with specified model or best model
+        
+        Parameters:
+        model_name (str): Name of model to evaluate ('logistic', 'xgboost', etc.)
+                        If None, uses the overall best model from comparison
+
+        model list: 'logistic','svm','decision_tree','random_forest','adaboost','xgboost','dnn'
+
+        """
+        from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix
+
+        if not hasattr(self, 'trained_models'):
+            raise ValueError("Run _model_comparison() first!")
+        
+        # Select model to evaluate
+        if model_name is None:
+            if not hasattr(self, 'best_model_name'):
+                raise ValueError("No best model found. Run _model_comparison() first!")
+            model_name = self.best_model_name
+            selected_model = self.best_model
+            print(f"Using overall best model: {model_name}")
+        else:
+            if model_name not in self.trained_models:
+                available_models = list(self.trained_models.keys())
+                raise ValueError(f"Model '{model_name}' not found. Available models: {available_models}")
+            selected_model = self.trained_models[model_name]
+            print(f"Using specified model: {model_name}")
+        
+        # Get test data
+        X_test, y_test = self.get_test_data()
+        
+        # Final predictions
+        test_pred = selected_model.predict(X_test)
+        test_proba = selected_model.predict_proba(X_test)[:, 1] if hasattr(selected_model, 'predict_proba') else None
+        test_accuracy = selected_model.score(X_test, y_test)
+        
+        try:
+            test_auc = roc_auc_score(y_test, test_proba) if test_proba is not None else None
+        except:
+            test_auc = None
+        
+        print(f"\n{'='*50}")
+        print(f"FINAL TEST EVALUATION - {model_name.upper()}")
+        print(f"{'='*50}")
+        print(f"Best parameters: {self.best_parameters[model_name]}")
+        print(f"Test Accuracy: {test_accuracy:.4f}")
+        if test_auc:
+            print(f"Test AUC: {test_auc:.4f}")
+        
+        print("\nClassification Report:")
+        print(classification_report(y_test, test_pred))
+        
+        print("\nConfusion Matrix:")
+        print(confusion_matrix(y_test, test_pred))
+        
+        return {
+            'model_name': model_name,
+            'best_parameters': self.best_parameters[model_name],
+            'test_accuracy': test_accuracy,
+            'test_auc': test_auc,
+            'predictions': test_pred,
+            'probabilities': test_proba
+        }
