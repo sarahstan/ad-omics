@@ -1330,7 +1330,6 @@ class scDATA:
                     'C': [1, 10],       # Only 2 C values
                     'gamma': ['scale'], # Only 1 gamma value
                 }
-                # Remove poly kernel entirely - it's very slow
             ],
             'decision_tree': {
                 # More data = deeper trees allowed
@@ -1342,11 +1341,12 @@ class scDATA:
             },
             'random_forest': {
                 # More data = deeper trees allowed
-                'n_estimators': [100, 200, 500],
-                'max_depth': [10, 20, None],
-                'min_samples_split': [2, 5, 10],
-                'min_samples_leaf': [1, 2, 5],
-                'max_features': ['sqrt', 'log2', 0.5]
+                # ran slowly so reduced complexity
+                'n_estimators': [100, 200],
+                'max_depth': [10, None],
+                'min_samples_split': [2, 10],
+                'min_samples_leaf': [1, 5],
+                'max_features': ['sqrt']
             },
             'adaboost': {
                 # More data = more estimators viable
@@ -1355,14 +1355,15 @@ class scDATA:
                 'algorithm': ['SAMME.R']
             },
             'xgboost': {
-                'n_estimators': [100, 300, 500], 
-                'max_depth': [3, 6, 9],
-                'learning_rate': [0.01, 0.1, 0.3], 
-                'subsample': [0.8, 1.0], 
-                'colsample_bytree': [0.8, 1.0], 
-                'reg_alpha': [0, 1], 
-                'reg_lambda': [1, 5], 
-                'min_child_weight': [1, 3] 
+                # Simplifying to speed things
+                'n_estimators': [100, 300], 
+                'max_depth': [3, 6],
+                'learning_rate': [0.1, 0.3], 
+                'subsample': [0.8], 
+                'colsample_bytree': [0.8], 
+                'reg_alpha': [0], 
+                'reg_lambda': [1], 
+                'min_child_weight': [1] 
             }
         }
 
@@ -1413,9 +1414,9 @@ class scDATA:
             start_time = time.time()
 
             # Stratified CV for consistent evaluation
-            if model_name == 'svm':
-                cv_folds_model = 3  # Use 3-fold instead of 5-fold for SVM
-                print(f"Using {cv_folds_model}-fold CV for SVM (faster)")
+            if model_name == 'svm' or model_name == 'random_forest' or model_name == 'xgboost':
+                cv_folds_model = 3  # Use 3-fold instead of 5-fold
+                print(f"Using {cv_folds_model}-fold CV for {model_name} (faster)")
             else:
                 cv_folds_model = cv_folds
             cv_strategy = StratifiedKFold(n_splits=cv_folds_model, shuffle=True, random_state=42)
@@ -1432,15 +1433,14 @@ class scDATA:
             )
             
             # SVM is struggling with the full dataset
-            if model_name == 'svm':
-                # Use only 50% of training data for SVM
+            if model_name == 'svm' or model_name == 'random_forest' or model_name == 'xgboost':
+                # Use only 50% of training data for SVM, random forest, xgboost
                 from sklearn.model_selection import train_test_split
-                x_train_svm, _, y_train_svm, _ = train_test_split(
+                x_train_subset, _, y_train_subset, _ = train_test_split(
                     x_train, y_train, train_size=0.5, random_state=42, stratify=y_train
                 )
-                print(f"Using subset for SVM: {x_train_svm.shape[0]} samples instead of {x_train.shape[0]}")
-                # Fit on training data, SVM
-                grid_search.fit(x_train_svm, y_train_svm)
+                print(f"Using subset for {model_name}: {x_train_subset.shape[0]} samples instead of {x_train.shape[0]}")
+                grid_search.fit(x_train_subset, y_train_subset)
             else:
                 # Fit on training data, other models
                 grid_search.fit(x_train, y_train)
@@ -1528,8 +1528,8 @@ class scDATA:
             for model in results.keys()
         }).T
         
-        # Sort by validation accuracy
-        comparison_df = comparison_df.sort_values('Val_Accuracy', ascending=False)
+        # Sort by validation AUC, better for RNAseq data
+        comparison_df.sort_values('Val_AUC', ascending=False, inplace=True)
         
         print(f"\n{'='*60}")
         print("MODEL COMPARISON SUMMARY")
@@ -1547,12 +1547,12 @@ class scDATA:
         self.best_model = results[best_model_name]['best_model']
         
         print(f"\nOverall best model: {best_model_name}")
-        print(f"Best validation accuracy: {comparison_df.loc[best_model_name, 'Val_Accuracy']:.4f}")
+        print(f"Best validation AUC: {comparison_df.loc[best_model_name, 'Val_AUC']:.4f}")
         print(f"\nAll trained models available: {list(self.trained_models.keys())}")
         
         return results, comparison_df
     
-    def _final_test_evaluation(self, model_name=None):
+    def _final_test_evaluation(self, x_test, y_test, model_name=None):
         """
         Final evaluation on test set with specified model or best model
         
@@ -1563,7 +1563,7 @@ class scDATA:
         model list: 'logistic','svm','decision_tree','random_forest','adaboost','xgboost','dnn'
 
         """
-        from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix
+        from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix, f1_score
 
         if not hasattr(self, 'trained_models'):
             raise ValueError("Run _model_comparison() first!")
@@ -1574,46 +1574,44 @@ class scDATA:
                 raise ValueError("No best model found. Run _model_comparison() first!")
             model_name = self.best_model_name
             selected_model = self.best_model
-            print(f"Using overall best model: {model_name}")
+            self._print(f"Using overall best model: {model_name}")
         else:
             if model_name not in self.trained_models:
                 available_models = list(self.trained_models.keys())
                 raise ValueError(f"Model '{model_name}' not found. Available models: {available_models}")
             selected_model = self.trained_models[model_name]
-            print(f"Using specified model: {model_name}")
-        
-        # Get test data
-        X_test, y_test = self.get_test_data()
+            self._print(f"Using specified model: {model_name}")
         
         # Final predictions
-        test_pred = selected_model.predict(X_test)
-        test_proba = selected_model.predict_proba(X_test)[:, 1] if hasattr(selected_model, 'predict_proba') else None
-        test_accuracy = selected_model.score(X_test, y_test)
+        test_pred = selected_model.predict(x_test)
+        test_proba = selected_model.predict_proba(x_test)[:, 1] if hasattr(selected_model, 'predict_proba') else None
+        test_accuracy = selected_model.score(x_test, y_test)
         
         try:
             test_auc = roc_auc_score(y_test, test_proba) if test_proba is not None else None
         except:
             test_auc = None
         
-        print(f"\n{'='*50}")
-        print(f"FINAL TEST EVALUATION - {model_name.upper()}")
-        print(f"{'='*50}")
-        print(f"Best parameters: {self.best_parameters[model_name]}")
-        print(f"Test Accuracy: {test_accuracy:.4f}")
+        self._print(f"\n{'='*50}")
+        self._print(f"FINAL TEST EVALUATION - {model_name.upper()}")
+        self._print(f"{'='*50}")
+        self._print(f"Best parameters: {self.best_parameters[model_name]}")
+        self._print(f"Test Accuracy: {test_accuracy:.4f}")
         if test_auc:
-            print(f"Test AUC: {test_auc:.4f}")
+            self._print(f"Test AUC: {test_auc:.4f}")
         
-        print("\nClassification Report:")
-        print(classification_report(y_test, test_pred))
+        self._print("\nClassification Report:")
+        self._print(classification_report(y_test, test_pred))
         
-        print("\nConfusion Matrix:")
-        print(confusion_matrix(y_test, test_pred))
+        self._print("\nConfusion Matrix:")
+        self._print(confusion_matrix(y_test, test_pred))
         
         return {
             'model_name': model_name,
             'best_parameters': self.best_parameters[model_name],
             'test_accuracy': test_accuracy,
             'test_auc': test_auc,
+            'f1_score': f1_score(y_test, test_pred, average='macro'),
             'predictions': test_pred,
             'probabilities': test_proba
         }
