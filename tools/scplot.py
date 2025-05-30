@@ -660,6 +660,70 @@ class scPLOT:
                 horizontalalignment="right",
             )
 
+    def compare_best_models(self, x_test, y_test):
+        #iterate through model names, running _final_test_evaluation(self, x_test, y_test, model_name=None)
+        #subplots: test auc, f1 score macro
+        
+        fig = make_subplots(rows=1, cols=2, shared_yaxes=True, subplot_titles=("Test AUC", "F1-score"))
+        x = []
+        y1 = []
+        y2 = []
+        saved_models = self.sc_data.trained_models.keys()
+        for model in saved_models:
+            results = self.sc_data._final_test_evaluation(x_test, y_test, model_name=model)
+            x.append(results['model_name'])
+            curr_auc = results['test_auc']
+            if curr_auc is None:
+                curr_auc=0
+            y1.append(curr_auc)
+            y2.append(results['f1_score'])
+        
+        #Sort x,y1,and y2 by values of y1, highest first
+        sorted_data = sorted(zip(y1, x, y2), reverse=True)  # Sort by y1 (first element)
+        y1, x, y2 = zip(*sorted_data)  # Unpack back into separate lists
+        
+        # Convert back to lists (zip returns tuples)
+        x = list(x)
+        y1 = list(y1)
+        y2 = list(y2)
+        # Calculate shared color range
+        all_values = y1 + y2  # Combine both y-value lists
+        # exclude 0 val
+        all_values = [x for x in all_values if x != 0]
+        color_min = min(all_values)
+        color_max = max(all_values)
+
+        fig.add_trace(go.Bar(x=x,y=y1,
+                             marker={
+                                'color': y1, 
+                                'colorscale': 'Viridis',
+                                'cmin': color_min,
+                                'cmax': color_max,
+                                'colorbar': dict(
+                                    title="Score",
+                                    x=1.02,
+                                    thickness=15,
+                                    len=0.8
+                                )
+                            }),
+                             row=1,col=1)
+        fig.add_trace(go.Bar(x=x,y=y2,
+                             marker={
+                                'color': y2, 
+                                'colorscale': 'Viridis',
+                                'cmin': color_min,
+                                'cmax': color_max,
+                                'showscale': False
+                            }),
+                             row=1,col=2)
+        fig.update_layout(
+            showlegend=False,
+            title_text='Model Comparison for 100 DEGs',
+            margin=dict(r=100)  # Add right margin for colorbar
+        )
+        fig.show()
+
+    
     def run_pipeline(self,plot_figs=False):
         #Run complete pipeline on instance of scPLOT generated from scDATA        
         #User: defines directory, creates scDATA instance, uses instance to initialize
