@@ -5,6 +5,7 @@
 *.csv
 *.rds
 *.mtx
+*.pkl
 
 # Ignore outputs directory
 OtherExports
