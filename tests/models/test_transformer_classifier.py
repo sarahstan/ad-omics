@@ -1,8 +1,10 @@
 import pytest
 import torch
-from models.cell_state_encoder import CellStateEncoder
-from models.torch.scrna_transformer import ScRNATransformer
-from models.torch.transformer_classifier import ADPredictionModel
+from models.transformer.classifier import (
+    ADPredictionModel,
+    CellEncoderAndTransformerDimensionMismatchError,
+)
+from configs import CellStateEncoderConfig, ScRNATransformerConfig
 from tests.utils import (
     create_permutation,
     create_permuted_data,
@@ -11,26 +13,24 @@ from tests.utils import (
 
 @pytest.fixture
 def ad_prediction_model(
-    cell_state_encoder: CellStateEncoder,
-    model_params,
+    cell_state_encoder_config: CellStateEncoderConfig,
+    scrna_transformer_config: ScRNATransformerConfig,
 ) -> ADPredictionModel:
     """Fixture to create an ADPredictionModel instance for testing."""
     return ADPredictionModel(
-        cell_state_encoder=cell_state_encoder,
-        embed_dim=model_params.embed_dim,
-        num_heads=model_params.num_heads,
-        ff_dim=model_params.ff_dim,
-        num_layers=model_params.num_layers,
-        max_seq_len=model_params.max_seq_len,
-        dropout=model_params.dropout,
+        cell_state_encoder_config=cell_state_encoder_config,
+        scrna_transformer_config=scrna_transformer_config,
     )
 
 
 def test_forward(
-    model_params,
     ad_prediction_model: ADPredictionModel,
+    cell_state_encoder_config: CellStateEncoderConfig,
+    scrna_transformer_config: ScRNATransformerConfig,
     gene_token_data: tuple,
     cell_type: torch.Tensor,
+    batch_size: int,
+    num_genes_per_cell_max: int,
 ):
     """Test the forward method of ADPredictionModel."""
     gene_indices, gene_values, attention_mask = gene_token_data
@@ -44,20 +44,20 @@ def test_forward(
     )
 
     # Check logits shape
-    assert logits.shape == (model_params.batch_size,), "Logits shape mismatch"
+    assert logits.shape == (batch_size,), "Logits shape mismatch"
 
     # Check attention weights shape: should be a list of tensors, one per layer
     assert (
-        len(attention_weights) == model_params.num_layers
+        len(attention_weights) == scrna_transformer_config.num_layers
     ), "Incorrect number of attention weight layers"
 
     # Check that each attention weight is properly shaped
     for layer_idx, attn_weights in enumerate(attention_weights):
-        expected_seq_len = model_params.max_seq_len
+        expected_seq_len = num_genes_per_cell_max
 
         expected_shape = (
-            model_params.batch_size,
-            model_params.num_heads,
+            batch_size,
+            scrna_transformer_config.num_heads,
             expected_seq_len,
             expected_seq_len,
         )
@@ -68,7 +68,6 @@ def test_forward(
 
 
 def test_permutation_invariance(
-    model_params,
     ad_prediction_model: ADPredictionModel,
     gene_token_data: tuple,
     cell_type: torch.Tensor,
@@ -126,3 +125,44 @@ def test_permutation_invariance(
     assert torch.allclose(
         original_logits, permuted_logits, atol=1e-5
     ), "ADPredictionModel is not permutation invariant - logits changed after gene permutation"
+
+
+import copy
+
+
+def test_validation_fails_when_embed_dims_mismatch(
+    cell_state_encoder_config: CellStateEncoderConfig,
+    scrna_transformer_config: ScRNATransformerConfig,
+):
+    bad_encoder_config = copy.deepcopy(cell_state_encoder_config)
+    bad_transformer_config = copy.deepcopy(scrna_transformer_config)
+
+    bad_encoder_config.gene_embedding_dim = 5
+    bad_transformer_config.embed_dim = 4
+
+    with pytest.raises(CellEncoderAndTransformerDimensionMismatchError) as exc_info:
+        _ = ADPredictionModel(
+            cell_state_encoder_config=bad_encoder_config,
+            scrna_transformer_config=bad_transformer_config,
+        )
+    correct_str = "Expected cell encoder and transformer to have the same internal dimension"
+    condition = correct_str in str(exc_info.value)
+    error_str = "Error message does not contain expected string"
+    assert condition, error_str
+
+
+def test_validation_passes_when_embed_dims_match(
+    cell_state_encoder_config: CellStateEncoderConfig,
+    scrna_transformer_config: ScRNATransformerConfig,
+):
+    """Test that matching dimensions don't raise an error"""
+    try:
+        _ = ADPredictionModel(
+            cell_state_encoder_config=cell_state_encoder_config,
+            scrna_transformer_config=scrna_transformer_config,
+        )
+        # If we get here, the test passes
+    except CellEncoderAndTransformerDimensionMismatchError as e:
+        pytest.fail(f"Expected no exception for matching dimensions, but got: {e}")
+    except Exception as e:
+        pytest.fail(f"Unexpected exception type: {type(e).__name__}: {e}")

@@ -59,7 +59,12 @@ def check_sequence_attention(orig_attn, perm_attn, inverse_perm, seq_len, layer_
     assert torch.allclose(orig_seq_seq, reordered_perm_seq_seq, atol=1e-5), error_str
 
 
-def generate_gene_data(batch_size, num_genes, max_seq_len, seed=42):
+def generate_gene_data(
+    batch_size: int,
+    num_genes_total: int,
+    num_genes_per_cell_max: int,
+    seed: int = 1,
+):
     """Generate random gene expression data for testing."""
     torch.manual_seed(seed)  # For reproducibility
 
@@ -69,10 +74,10 @@ def generate_gene_data(batch_size, num_genes, max_seq_len, seed=42):
 
     for _ in range(batch_size):
         # Sample a random number of expressed genes (between 100 and max_seq_len)
-        num_expressed = torch.randint(100, max_seq_len, (1,)).item()
+        num_expressed = torch.randint(100, num_genes_per_cell_max, (1,)).item()
 
         # Sample random gene indices (without replacement)
-        indices = torch.randperm(num_genes)[:num_expressed]
+        indices = torch.randperm(num_genes_total)[:num_expressed]
         gene_indices.append(indices)
 
         # Generate random expression values for each gene
@@ -80,9 +85,9 @@ def generate_gene_data(batch_size, num_genes, max_seq_len, seed=42):
         gene_values.append(values)
 
     # Create attention mask and pad to max_seq_len
-    padded_indices = torch.zeros(batch_size, max_seq_len, dtype=torch.long)
-    padded_values = torch.zeros(batch_size, max_seq_len, dtype=torch.float)
-    attention_mask = torch.zeros(batch_size, max_seq_len, dtype=torch.bool)
+    padded_indices = torch.zeros(batch_size, num_genes_per_cell_max, dtype=torch.long)
+    padded_values = torch.zeros(batch_size, num_genes_per_cell_max, dtype=torch.float)
+    attention_mask = torch.zeros(batch_size, num_genes_per_cell_max, dtype=torch.bool)
 
     for i, (indices, values) in enumerate(zip(gene_indices, gene_values)):
         seq_len = indices.size(0)

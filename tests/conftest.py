@@ -3,31 +3,7 @@ import pytest
 from data import scDATA
 import torch
 from dataclasses import dataclass
-from models.cell_state_encoder import CellStateEncoder
-
-
-@dataclass
-class ModelParameters:
-    """Common parameters for all model tests."""
-
-    def __init__(
-        self,
-        batch_size: int = 8,
-        num_genes: int = 15000,  # Total vocabulary size
-        max_seq_len: int = 500,  # Maximum sequence length (expressed genes)
-        embed_dim: int = 16,  # Embedding dimension
-        num_heads: int = 8,  # Number of attention heads
-        ff_dim: int = 64,  # Feed forward dimension
-        num_layers: int = 2,  # Number of transformer layers
-        num_cell_types: int = 12,
-        use_film: bool = True,
-        dropout: float = 0.1,
-    ) -> None:
-        """Initialize the common parameters for model tests."""
-        # Set attributes from the init parameters
-        for key, value in locals().items():
-            if key != "self":
-                setattr(self, key, value)
+from configs import CellStateEncoderConfig, ScRNATransformerConfig
 
 
 @pytest.fixture
@@ -38,6 +14,55 @@ def test_split() -> float:
 @pytest.fixture
 def val_split() -> float:
     return 0.15
+
+
+@pytest.fixture
+def batch_size() -> int:
+    return 8
+
+
+@pytest.fixture
+def num_genes_total() -> int:
+    return 15000
+
+
+@pytest.fixture
+def num_genes_per_cell_max() -> int:
+    return 512
+
+
+@dataclass
+class ModelTestParameters:
+    """Common parameters for all model tests."""
+
+    def __init__(
+        self,
+        # Shared
+        embed_dim: int = 16,  # Embedding dimension
+        # Cell State Encoder parameters
+        num_genes_total: int = 15000,  # Total vocabulary size
+        num_cell_types: int = 12,  # Number of cell types
+        use_film: bool = True,  # Use FiLM for cell type conditioning
+        cell_state_encoder_dropout: float = 0.1,  # Dropout rate for cell state encoder
+        # Transformer parameters
+        num_heads: int = 8,  # Number of attention heads
+        ff_dim: int = 64,  # Feed forward dimension
+        num_layers: int = 2,  # Number of transformer layers
+        transformer_dropout: float = 0.1,  # Dropout rate for transformer
+    ) -> None:
+        """Initialize the common parameters for model tests."""
+        # Set attributes from the init parameters
+        for key, value in locals().items():
+            if key != "self":
+                setattr(self, key, value)
+
+
+@pytest.fixture
+def model_test_params(scdata) -> ModelTestParameters:
+    """Common fixture for model parameters used across all model tests."""
+    params = ModelTestParameters()
+    params.num_cell_types = len(scdata.cell_types)
+    return params
 
 
 @pytest.fixture
@@ -62,41 +87,33 @@ def scdata(test_split: float, val_split: float) -> scDATA:
 
 
 @pytest.fixture
-def model_params(scdata) -> ModelParameters:
-    """Common fixture for model parameters used across all model tests."""
-    params = ModelParameters()
-    params.num_cell_types = len(scdata.cell_types)
-    return params
-
-
-@pytest.fixture
-def gene_token_data(model_params):
+def gene_token_data(batch_size: int, num_genes_total: int, num_genes_per_cell_max: int) -> tuple:
     """Fixture to create token representation of gene data for all tests."""
     from tests.utils import generate_gene_data
 
     return generate_gene_data(
-        batch_size=model_params.batch_size,
-        num_genes=model_params.num_genes,
-        max_seq_len=model_params.max_seq_len,
+        batch_size=batch_size,
+        num_genes_total=num_genes_total,
+        num_genes_per_cell_max=num_genes_per_cell_max,
     )
 
 
 @pytest.fixture
-def cell_type(model_params):
+def cell_type(model_test_params, batch_size):
     """Fixture to create a tensor of cell types for all tests."""
     # Create an integer tensor representing cell types
     torch.manual_seed(42)  # For reproducibility
-    cell_type = torch.randint(0, model_params.num_cell_types, (model_params.batch_size,))
+    cell_type = torch.randint(0, model_test_params.num_cell_types, (batch_size,))
     return cell_type
 
 
 @pytest.fixture
-def cell_state_encoder(model_params) -> CellStateEncoder:
-    """Fixture to create a CellStateEncoder instance for testing."""
-    return CellStateEncoder(
-        num_genes=model_params.num_genes,
-        gene_embedding_dim=model_params.embed_dim,
-        num_cell_types=model_params.num_cell_types,
-        use_film=model_params.use_film,
-        dropout=model_params.dropout,
-    )
+def cell_state_encoder_config() -> CellStateEncoderConfig:
+    """Fixture to create a CellStateEncoderConfig instance for testing."""
+    return CellStateEncoderConfig()
+
+
+@pytest.fixture
+def scrna_transformer_config() -> ScRNATransformerConfig:
+    """Fixture to create a ScRNATransformerConfig instance for testing."""
+    return ScRNATransformerConfig()
