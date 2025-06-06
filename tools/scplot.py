@@ -194,7 +194,7 @@ class scPLOT:
         # Visualize the preprocessing state of the data
         # Check if analysis has been run
         if not hasattr(self.sc_data, "preprocessing_state"):
-            print("Please run sc_data.check_data_preprocessing() first")
+            self.print("Please run sc_data.check_data_preprocessing() first")
             return
         # Get the data from the scDATA object
         results = self.sc_data.preprocessing_state
@@ -246,13 +246,13 @@ class scPLOT:
         # Display the figure
         fig.show()
         # Print preprocessing state summary
-        print("\nData appears to be:")
+        self.sc_data._print("\nData appears to be:")
         for state, is_true in results["Likely_state"].items():
             state_name = state.replace("is_", "").replace("_", " ").title()
             if is_true:
-                print(f"- {state_name}: Yes")
+                self.sc_data._print(f"- {state_name}: Yes")
             else:
-                print(f"- {state_name}: No")
+                self.sc_data._print(f"- {state_name}: No")
 
         # Save fig as PNG
         if self.save_path:
@@ -260,46 +260,183 @@ class scPLOT:
             self.save_fig(fig,path_with_extension)
         return fig
 
-    def plot_pca(self, color_by="celltype"):
-        # Plot PCA colored by metadata
+    def plot_pca(self, subset=None, color_by="celltype", use_harmony=True, components=[0, 1]):
+        """
+        Plot PCA visualization colored by metadata.
+        
+        Parameters:
+        -----------
+        subset : None or str, default=None
+            Specify which subset to plot: None for full dataset, 'train', 'test', or 'val'
+        color_by : str, default="celltype"
+            Column from metadata to use for coloring points
+        use_harmony : bool, default=True
+            Whether to use Harmony-corrected PCA or standard PCA
+        components : list, default=[0, 1]
+            Which principal components to plot (0-indexed)
+            
+        Returns:
+        --------
+        plotly.graph_objects.Figure
+            The generated plot
+        """
+        # Determine which dataset to use
+        if subset is None:
+            # Use full dataset
+            if use_harmony:
+                if not hasattr(self.sc_data, "harmony_input_full"):
+                    print("Error: Harmony results for full dataset not found.")
+                    print("Run: self.sc_data.run_harmony(batch_key='your_batch_key')")
+                    return None
+                input_data = self.sc_data.harmony_input_full
+                subset_name = "full dataset"
+            else:
+                input_data = self.sc_data.adata_hvg
+                subset_name = "full dataset"
+        else:
+            # Use the specified subset if it exists
+            if use_harmony:
+                harmony_attr = f"harmony_input_{subset}"
+                if not hasattr(self.sc_data, harmony_attr):
+                    print(f"Error: Harmony results for {subset} subset not found.")
+                    print(f"Run: self.sc_data.run_harmony(batch_key='your_batch_key', subset='{subset}')")
+                    return None
+                input_data = getattr(self.sc_data, harmony_attr)
+                subset_name = f"{subset} subset"
+            else:
+                adata_attr = f"adata_hvg_{subset}"
+                if not hasattr(self.sc_data, adata_attr):
+                    print(f"Error: {subset} subset not found.")
+                    print(f"Run: self.sc_data.run_pca(use_split=True, split_subset='{subset}')")
+                    return None
+                input_data = getattr(self.sc_data, adata_attr)
+                subset_name = f"{subset} subset"
+        
+        # Determine which PCA embedding to use
+        pca_key = "X_pca_harmony" if use_harmony else "X_pca"
+        
+        # Check if the embedding exists
+        if pca_key not in input_data.obsm:
+            correction_type = "Harmony" if use_harmony else "PCA"
+            print(f"Error: {correction_type} results not found for {subset_name}.")
+            return None
+        
+        # Extract component labels
+        pc1_idx, pc2_idx = components
+        pc1_label = f"PC{pc1_idx+1}"
+        pc2_label = f"PC{pc2_idx+1}"
+        
+        # Create dataframe for plotting
         pca_df = pd.DataFrame(
-            self.sc_data.adata_hvg.obsm["X_pca_harmony"][:, :2],
-            index=self.sc_data.adata_hvg.obs.index,
-            columns=["PC1", "PC2"],
+            input_data.obsm[pca_key][:, components],
+            index=input_data.obs.index,
+            columns=[pc1_label, pc2_label],
         )
-        pca_df[color_by] = self.sc_data.metadata.loc[pca_df.index, color_by]
+        
+        # Add metadata for coloring
+        if color_by in self.sc_data.metadata.columns:
+            try:
+                pca_df[color_by] = self.sc_data.metadata.loc[pca_df.index, color_by]
+            except KeyError:
+                # Handle case where some indices might not be in metadata
+                print(f"Warning: Some cells in the {subset_name} are not found in metadata.")
+                # Get intersection of indices
+                common_indices = pca_df.index.intersection(self.sc_data.metadata.index)
+                pca_df = pca_df.loc[common_indices]
+                pca_df[color_by] = self.sc_data.metadata.loc[common_indices, color_by]
+        else:
+            print(f"Warning: Column '{color_by}' not found in metadata.")
+            if 'celltype' in self.sc_data.metadata.columns:
+                color_by = 'celltype'
+                pca_df[color_by] = self.sc_data.metadata.loc[pca_df.index, color_by]
+            else:
+                # Create a dummy coloring variable
+                color_by = 'group'
+                pca_df[color_by] = 'All Cells'
 
+        # Create title based on parameters
+        correction_type = "Harmony-corrected" if use_harmony else "standard"
+        title = f"PCA Visualization ({correction_type}) - {subset_name.capitalize()}"
+        
+        # Create plot
         fig = px.scatter(
             pca_df,
-            x="PC1",
-            y="PC2",
+            x=pc1_label,
+            y=pc2_label,
             color=color_by,
-            title="PCA Visualization",
+            title=title,
             color_discrete_sequence=px.colors.qualitative.Bold,
         )
+        
+        # Add variance explained if available
+        if hasattr(input_data, 'uns') and 'pca' in input_data.uns and 'variance_ratio' in input_data.uns['pca']:
+            variance_ratio = input_data.uns['pca']['variance_ratio']
+            pc1_var = variance_ratio[pc1_idx] * 100
+            pc2_var = variance_ratio[pc2_idx] * 100
+            fig.update_layout(
+                xaxis_title=f"{pc1_label} ({pc1_var:.1f}% variance)",
+                yaxis_title=f"{pc2_label} ({pc2_var:.1f}% variance)"
+            )
+        
+        # Update styling
         fig.update_traces(marker=dict(size=5, opacity=0.7))
-        fig.update_layout(height=600, width=800)
+        fig.update_layout(
+            height=600, 
+            width=800,
+            template="plotly_white",
+            legend_title_text=color_by.capitalize()
+        )
+        
+        # Show the figure
         fig.show()
-        # Save fig as PNG
+        
+        # Save figure if save path is specified
         if self.save_path:
-            path_with_extension = self.save_path + "Plot_PCA_by_" + color_by + ".png"
-            self.save_fig(fig,path_with_extension)
+            subset_str = f"_{subset}" if subset else ""
+            harmony_str = "_harmony" if use_harmony else ""
+            path_with_extension = f"{self.save_path}Plot_PCA{subset_str}{harmony_str}_by_{color_by}.png"
+            self.save_fig(fig, path_with_extension)
+        
         return fig
 
-    def plot_umap(self, color_by="celltype"):
+    def plot_umap(self, use_split=False, color_by="celltype"):
         # Plot UMAP (self.sc_data.embedding_df) colored by metadata
-        # some color_by options = 'celltype','brain_region','ADdiag2types','subject'
+        # Use Split enables plotting UMAP generated from training data and overlaying Test/Val data
+        # some color_by options = 'celltype','brain_region','ADdiag2types','subject','traintestsplit'
 
-        # Add necessary metadata
-        self.sc_data.embedding_df[color_by] = self.sc_data.metadata.loc[
-            self.sc_data.embedding_df.index, color_by
-        ]
+        #Determine if split and set variables
+        if use_split:
+            #Create embedding_df that concatenates train/test/split and adds a column for train/test/split identity
+            # Convert each UMAP output to a dataframe with proper column names
+            df1 = pd.DataFrame(self.sc_data.embedding_df_train, columns=["UMAP1", "UMAP2"])
+            df2 = pd.DataFrame(self.sc_data.embedding_df_test, columns=["UMAP1", "UMAP2"])
+            df3 = pd.DataFrame(self.sc_data.embedding_df_val, columns=["UMAP1", "UMAP2"])
+
+            # Add the traintestsplit column to each dataframe
+            df1["traintestsplit"] = "train"
+            df2["traintestsplit"] = "test"
+            df3["traintestsplit"] = "val"
+
+            # Concatenate all three dataframes
+            embedding_df = pd.concat([df1, df2, df3], ignore_index=True)
+
+            # Verify the result
+            print(f"Combined shape: {embedding_df.shape}")
+            print(embedding_df.head())
+            print(embedding_df.tail())
+
+        else:
+            embedding_df = self.sc_data.embedding_df
+            # Add necessary metadata
+            embedding_df[color_by] = self.sc_data.metadata.loc[
+                embedding_df.index, color_by
+            ]
 
         # create dynamic title
         title = f"UMAP Visualization: by {color_by}"
         # Create plot
         fig = px.scatter(
-            self.sc_data.embedding_df,
+            embedding_df,
             x="UMAP1",
             y="UMAP2",
             color=color_by,
@@ -403,54 +540,122 @@ class scPLOT:
             self.save_fig(fig,path_with_extension)
         return fig
         
-    def run_pipeline(self,plot_figs=False):
-        #Run complete pipeline on instance of scPLOT generated from scDATA        
-        #User: defines directory, creates scDATA instance, uses instance to initialize
-        # scPLOT instance, runs this function
+    def compute_visualize_classifiers(self,X_train,X_test,X_val,y_train,y_test,y_val):
+        #Train on classifiers and compare results for UMAP
+        #adapted from: https://scikit-learn.org/stable/auto_examples/classification/plot_classifier_comparison.html
 
-        # Add the full cell type names
-        self.sc_data.add_column_by_column("celltype", "celltypefull")
+        import matplotlib.pyplot as plt
+        import numpy as np
+        from matplotlib.colors import ListedColormap
 
-        # Check pre-processing
-        self.sc_data.check_data_preprocessing()
+        from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
+        from sklearn.ensemble import AdaBoostClassifier, RandomForestClassifier
+        from sklearn.gaussian_process import GaussianProcessClassifier
+        from sklearn.gaussian_process.kernels import RBF
+        from sklearn.inspection import DecisionBoundaryDisplay
+        from sklearn.naive_bayes import GaussianNB
+        from sklearn.neighbors import KNeighborsClassifier
+        from sklearn.neural_network import MLPClassifier
+        from sklearn.pipeline import make_pipeline
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.svm import SVC
+        from sklearn.tree import DecisionTreeClassifier
 
-        # Run quality control
-        self.sc_data.qc_summary = self.sc_data.quality_control(min_genes=200, min_cells=3)
+        #set names of classifers for plot
+        names = [
+            "Nearest Neighbors",
+            "Linear SVM",
+            "RBF SVM",
+            "Decision Tree",
+            "Random Forest",
+            "Neural Net",
+            "AdaBoost",
+            "Naive Bayes",
+            "QDA",
+        ]
+        #Gaussian process took forever: 
+        #"Gaussian Process",
+        #    GaussianProcessClassifier(1.0 * RBF(1.0), random_state=42),
+        #create classifiers
+        classifiers = [
+            KNeighborsClassifier(3),
+            SVC(kernel="linear", C=0.025, random_state=42),
+            SVC(gamma=2, C=1, random_state=42),
+            DecisionTreeClassifier(max_depth=5, random_state=42),
+            RandomForestClassifier(
+                max_depth=5, n_estimators=10, max_features=1, random_state=42
+            ),
+            MLPClassifier(alpha=1, max_iter=1000, random_state=42),
+            AdaBoostClassifier(random_state=42),
+            GaussianNB(),
+            QuadraticDiscriminantAnalysis(),
+        ]
 
-        if plot_figs:
-            # Visualize quality control
-            self.plot_preprocessing_state()
+        #initialize figure
+        figure = plt.figure(figsize=(27, 9))
 
-            # Visualize QC metrics
-            self.plot_qc_metrics()
-            self.plot_qc_scatter()
+        #set complete datasets
+        #stack 2-d arrays
+        X = np.vstack([X_train, X_test, X_val])
+        #concatenate 1-d arrays
+        y = np.concatenate((y_train, y_test, y_val))
 
-            #Visualize cell distribution for AD dataset
-            self.plot_celltype_composition("celltype")
-            self.plot_meta1_by_meta2("subject", "celltype")
-            self.plot_meta1_by_meta2("ADdiag2types", "celltype")
+        #set dataset range
+        x_min, x_max = X[:, 0].min() - 0.5, X[:, 0].max() + 0.5
+        y_min, y_max = X[:, 1].min() - 0.5, X[:, 1].max() + 0.5
 
-        #Run dimensionality reduction using PCA
-        self.sc_data.find_variable_genes(n_top_genes=2000)
-        self.sc_data.run_pca(n_comps=30)
+        cm = plt.cm.RdBu
+        cm_bright = ListedColormap(["#FF0000", "#0000FF"])
+        ax = plt.subplot(1, len(classifiers) + 1, 1)
+        ax.set_title("Input data")
 
-        #Run Harmony and UMAP using generated PCA
-        self.sc_data.run_harmony(batch_key="batch")
-        self.sc_data.run_umap()
+        # Plot the training points
+        ax.scatter(X_train[:, 0], X_train[:, 1], c=y_train, cmap=cm_bright, edgecolors="k")
+        # Plot the testing points
+        ax.scatter(
+            X_test[:, 0], X_test[:, 1], c=y_test, cmap=cm_bright, alpha=0.6, edgecolors="k"
+        )
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(y_min, y_max)
+        ax.set_xticks(())
+        ax.set_yticks(())
 
-        if plot_figs:
-            #Visualize PCA
-            self.plot_pca()
+        # iterate over classifiers
+        for i, name in enumerate(names):
+            clf = classifiers[i]
+            print(f"Initializing classifier: {name}")
+            ax = plt.subplot(1, len(classifiers) + 1, i+2)
+            #Data needs to be scaled
+            clf = make_pipeline(StandardScaler(),clf)
+            clf.fit(X_train, y_train)
+            score = clf.score(X_test, y_test)
+            DecisionBoundaryDisplay.from_estimator(
+                clf, X, cmap=cm, alpha=0.8, ax=ax, eps=0.5
+            )
 
-            #Visualize UMAP in multiple ways
-            color_by=["celltype", "cellsubtype", "brain_region", "ADdiag2types", "subject"]
-            for meta in color_by:
-                self.plot_umap(color_by=meta)
+            # Plot the training points
+            ax.scatter(
+                X_train[:, 0], X_train[:, 1], c=y_train, cmap=cm_bright, edgecolors="k"
+            )
+            # Plot the testing points
+            ax.scatter(
+                X_test[:, 0],
+                X_test[:, 1],
+                c=y_test,
+                cmap=cm_bright,
+                edgecolors="k",
+                alpha=0.6,
+            )
 
-            #Visualize expression of marker genes using Violin plots
-            self.plot_marker_expression()
-
-            #Visualize marker gene expression by celltype in heatmap
-            self.plot_marker_heatmap()
-
-        print('Run pipeline complete.')
+            ax.set_xlim(x_min, x_max)
+            ax.set_ylim(y_min, y_max)
+            ax.set_xticks(())
+            ax.set_yticks(())
+            ax.set_title(name)
+            ax.text(
+                x_max - 0.3,
+                y_min + 0.3,
+                ("%.2f" % score).lstrip("0"),
+                size=15,
+                horizontalalignment="right",
+            )
