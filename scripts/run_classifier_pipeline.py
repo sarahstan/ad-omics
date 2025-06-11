@@ -553,3 +553,6 @@ def compare_best_models(self, x_test, y_test):
         margin=dict(r=100)  # Add right margin for colorbar
     )
     fig.show()
+
+def main():
+    
